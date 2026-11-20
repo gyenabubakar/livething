@@ -116,7 +116,6 @@ export interface DocState<D extends DocDef> {
      */
     at<T>(pick: Picker<D, YRef<T>>): T;
   };
-  destroy(): void;
 }
 
 function samePlace(a: unknown, b: unknown): boolean {
@@ -159,7 +158,8 @@ export function createDocState<D extends DocDef>(
     for (const watcher of [...watchers]) watcher();
   }
 
-  const stop = core.subscribe(refresh);
+  // A doc's state lives as long as its handle, which lives as long as the socket.
+  core.subscribe(refresh);
 
   // The history tracks a change only once its function has run to the end (see `change`),
   // so a change that throws, and is rolled back, never reaches it: no step is left, a paused
@@ -215,7 +215,12 @@ export function createDocState<D extends DocDef>(
 
         listeners += 1;
         const unsubscribe = store.store.subscribe(listener);
+        let subscribed = true;
+
         return () => {
+          if (!subscribed) return;
+
+          subscribed = false;
           unsubscribe();
           listeners -= 1;
           if (listeners === 0) watchers.delete(update);
@@ -274,11 +279,6 @@ export function createDocState<D extends DocDef>(
 
         return type as never;
       },
-    },
-    destroy() {
-      stop();
-      undo.destroy();
-      watchers.clear();
     },
   };
 }

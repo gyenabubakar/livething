@@ -7,6 +7,7 @@ export type {
   DocVersions,
   ReadOnlyDetail,
   Refusal,
+  UpdateNotSentDetail,
 } from '~/client/doc-handle.ts';
 export type { DocAwareness, DocMember, LockHolder } from '~/client/awareness.ts';
 export type { DocAnchors, DocHistory } from '~/client/doc-state.ts';

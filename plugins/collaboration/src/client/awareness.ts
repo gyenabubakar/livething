@@ -105,16 +105,30 @@ export function createDocAwareness<S>(options: DocAwarenessOptions) {
     if (!sameLocks(locks.store.get(), next)) locks.set(next);
   }
 
-  const stops = [
+  /**
+   * The server freed this member's locks when it left the room; asking again is lock()'s job.
+   * LiveThing awareness keeps the state it was last given and sends it when the room is
+   * joined again, so it gets the state without locks now, or the new connection would hold
+   * the old locks until the next push.
+   */
+  function dropLocks(): void {
+    if (mine.locks.length === 0) return;
+
+    mine = { ...mine, locks: [] };
+    const status = room.status.get();
+    if (status === 'subscribed' || status === 'subscribing') room.awareness.set(mine);
+  }
+
+  // The awareness lives as long as its handle, which lives as long as the socket.
+  void [
     room.awareness.others.subscribe(refreshLocks),
     room.awareness.self.subscribe(refreshLocks),
     room.status.subscribe((status) => {
       if (status === 'subscribed') push();
-      // The server freed this member's locks when it left the room; asking again is lock()'s job.
-      else mine = { ...mine, locks: [] };
+      else dropLocks();
     }),
     connection.subscribe((state) => {
-      if (state !== 'open') mine = { ...mine, locks: [] };
+      if (state !== 'open') dropLocks();
     }),
   ];
 
@@ -212,7 +226,7 @@ export function createDocAwareness<S>(options: DocAwarenessOptions) {
     }
 
     copyOthers(room.awareness.others.get());
-    stops.push(room.awareness.others.subscribe(copyOthers));
+    room.awareness.others.subscribe(copyOthers);
 
     return created;
   }
@@ -244,11 +258,7 @@ export function createDocAwareness<S>(options: DocAwarenessOptions) {
     yjs,
     /** The member left the doc: it holds no locks now. */
     left(): void {
-      mine = { ...mine, locks: [] };
-    },
-    destroy(): void {
-      for (const stop of stops) stop();
-      bridge?.destroy();
+      dropLocks();
     },
   };
 }

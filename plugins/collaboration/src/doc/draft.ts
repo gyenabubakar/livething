@@ -1,5 +1,5 @@
 import { liveIds, nestedList, rootList, rootType, valuesMap } from '~/doc/layout.ts';
-import { invalidChange, richTextFrom, writeValue } from '~/doc/values.ts';
+import { checkString, invalidChange, richTextFrom, writeValue } from '~/doc/values.ts';
 import { kindOf } from '~/schema.ts';
 import * as Y from 'yjs';
 import type { ListParts } from '~/doc/layout.ts';
@@ -60,14 +60,10 @@ function toY(at: DraftAt, field: Field, input: unknown): unknown {
       return writeValue(field as Leaf, input, path);
 
     case 'text':
-      if (typeof input !== 'string') throw invalidChange(path, 'text must be a string');
-
-      return new Y.Text(input);
+      return new Y.Text(checkString(path, input, 'text'));
 
     case 'rich-text':
-      if (typeof input !== 'string') throw invalidChange(path, 'rich text must be a string');
-
-      return richTextFrom(input);
+      return richTextFrom(checkString(path, input, 'rich text'));
 
     case 'list': {
       if (!Array.isArray(input)) throw invalidChange(path, 'a list must be an array');
@@ -93,7 +89,8 @@ function toY(at: DraftAt, field: Field, input: unknown): unknown {
 
       const map = new Y.Map<unknown>();
       for (const [key, value] of Object.entries(input)) {
-        map.set(key, toY(under(at, '{}'), (field as RecordField).item, value));
+        const checked = checkString(path, key, 'a record key');
+        map.set(checked, toY(under(at, '{}'), (field as RecordField).item, value));
       }
 
       return map;
@@ -112,6 +109,17 @@ function toY(at: DraftAt, field: Field, input: unknown): unknown {
   }
 }
 
+/** A Yjs type to write to. A draft of an item the same change deleted would lose the write. */
+function live<T extends Y.AbstractType<any>>(at: DraftAt, type: T): T {
+  if (type._item?.deleted) throw invalidChange(at.path, 'the item was deleted');
+
+  return type;
+}
+
+/** A nested list, record or object that is not there. */
+const MISSING =
+  'it is missing: its item was deleted in this change, or was stored before this field existed';
+
 /** A draft of a field inside a list item or record value. */
 function draftOf(at: DraftAt, field: Field, raw: unknown): unknown {
   const { ctx, path } = at;
@@ -125,18 +133,26 @@ function draftOf(at: DraftAt, field: Field, raw: unknown): unknown {
     case 'rich-text':
       return ctx.snapshots.field(field, raw, path);
 
-    case 'list':
-      return listDraft(at, (field as ListField).item, nestedList(raw)!);
+    case 'list': {
+      const parts = nestedList(raw);
+      if (!parts) throw invalidChange(path, MISSING);
+
+      return listDraft(at, (field as ListField).item, parts);
+    }
 
     case 'record':
-      return recordDraft(at, (field as RecordField).item, raw as Y.Map<unknown>);
+      if (!(raw instanceof Y.Map)) throw invalidChange(path, MISSING);
+
+      return recordDraft(at, (field as RecordField).item, raw);
 
     case 'shape': {
-      const map = raw as Y.Map<unknown>;
+      if (!(raw instanceof Y.Map)) throw invalidChange(path, MISSING);
+
+      const map = raw;
       return shapeDraft(at, field as Shape, {
         read: (key) => map.get(key),
-        write: (key, value) => map.set(key, value),
-        text: (key) => map.get(key) as Y.Text,
+        write: (key, value) => live(at, map).set(key, value),
+        text: (key) => live(at, map).get(key) as Y.Text,
       });
     }
   }
@@ -179,8 +195,14 @@ function listDraft(at: DraftAt, item: Field, parts: ListParts) {
     return ctx.snapshots.field(item, parts.items.get(id), itemAt.path);
   }
 
-  function insert(index: number, inputs: readonly unknown[]) {
+  /** Before a write: inside its change, and its item not deleted by the same change. */
+  function writable() {
     checkOpen(at);
+    live(at, parts.key);
+  }
+
+  function insert(index: number, inputs: readonly unknown[]) {
+    writable();
     const ids = liveIds(parts);
     const fresh = inputs.map((input) => {
       const id = ctx.newId();
@@ -202,14 +224,14 @@ function listDraft(at: DraftAt, item: Field, parts: ListParts) {
     push: (...inputs: unknown[]) => insert(Infinity, inputs),
     insert: (index: number, ...inputs: unknown[]) => insert(checkIndex(path, index), inputs),
     set(index: number, input: unknown) {
-      checkOpen(at);
+      writable();
       const id = liveIds(parts)[checkIndex(path, index)];
       if (id === undefined) throw invalidChange(path, `there is no item at index ${index}`);
 
       parts.items.set(id, toY(itemAt, item, input));
     },
     delete(index: number, count = 1) {
-      checkOpen(at);
+      writable();
       const from = checkIndex(path, index);
       for (const id of liveIds(parts).slice(from, from + checkIndex(path, count))) {
         parts.items.delete(id);
@@ -217,7 +239,7 @@ function listDraft(at: DraftAt, item: Field, parts: ListParts) {
       }
     },
     move(from: number, to: number) {
-      checkOpen(at);
+      writable();
       const id = liveIds(parts)[checkIndex(path, from)];
       if (id === undefined) throw invalidChange(path, `there is no item at index ${from}`);
 
@@ -241,13 +263,11 @@ function recordDraft(at: DraftAt, item: Field, map: Y.Map<unknown>) {
     has: (key: string) => map.has(key),
     set(key: string, input: unknown) {
       checkOpen(at);
-      if (typeof key !== 'string') throw invalidChange(at.path, 'a record key must be a string');
-
-      map.set(key, toY(itemAt, item, input));
+      live(at, map).set(checkString(at.path, key, 'a record key'), toY(itemAt, item, input));
     },
     delete(key: string) {
       checkOpen(at);
-      map.delete(key);
+      live(at, map).delete(key);
     },
     keys: () => map.keys(),
   };
@@ -260,6 +280,14 @@ interface ShapeAccess {
   text(key: string): Y.Text;
 }
 
+/** Why a field of each kind can't be assigned, as a refusal says it. */
+const NOT_ASSIGNED: Record<'rich-text' | 'list' | 'record' | 'shape', string> = {
+  'rich-text': 'rich text is changed through an editor, not by assigning',
+  list: 'a list is changed through its methods, not by assigning',
+  record: 'a record is changed through its methods, not by assigning',
+  shape: 'an object is changed field by field, not by assigning',
+};
+
 function shapeDraft(at: DraftAt, shape: Shape, access: ShapeAccess): object {
   const target = {};
   for (const [key, field] of Object.entries(shape)) {
@@ -271,18 +299,11 @@ function shapeDraft(at: DraftAt, shape: Shape, access: ShapeAccess): object {
       set(value: unknown) {
         checkOpen(fieldAt);
         if (kind === 'text') {
-          if (typeof value !== 'string') throw invalidChange(fieldAt.path, 'text must be a string');
-
-          at.ctx.texts.set(access.text(key), value);
+          at.ctx.texts.set(access.text(key), checkString(fieldAt.path, value, 'text'));
         } else if (kind === 'leaf') {
           access.write(key, writeValue(field as Leaf, value, fieldAt.path));
         } else {
-          throw invalidChange(
-            fieldAt.path,
-            kind === 'rich-text'
-              ? 'rich text is changed through an editor, not by assigning'
-              : `a ${kind} is changed through its methods, not by assigning`,
-          );
+          throw invalidChange(fieldAt.path, NOT_ASSIGNED[kind]);
         }
       },
     });

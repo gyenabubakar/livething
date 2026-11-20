@@ -95,6 +95,14 @@ export class DocCore<D extends DocDef = DocDef> {
       texts: new Map(),
     };
 
+    // `find` and `findIndex` read snapshots, which stay as they were until the change ends.
+    // Build them first, so every item reads as it was when the change began.
+    try {
+      this.read();
+    } catch {
+      // Content the schema refuses throws where the draft reads it.
+    }
+
     this.changing = true;
     let result!: R;
 

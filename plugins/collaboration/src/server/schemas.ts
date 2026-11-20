@@ -1,3 +1,4 @@
+import { wellFormed } from '~/doc/values.ts';
 import { MAX_LABEL } from '~/doc/wire.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { ReadVersionInfo, UpdateInfo } from '~/doc/wire.ts';
@@ -53,9 +54,12 @@ export const updateInfo = schema<UpdateInfo>((value) => {
 
 /** What is wrong with a version label, or `null` when it is fine. */
 export function labelProblem(label: unknown): string | null {
-  return typeof label === 'string' && label.length > 0 && label.length <= MAX_LABEL
+  return typeof label === 'string' &&
+    label.length > 0 &&
+    label.length <= MAX_LABEL &&
+    wellFormed(label)
     ? null
-    : `a version label must be a string of 1 to ${MAX_LABEL} characters`;
+    : `a version label must be a string of 1 to ${MAX_LABEL} characters, with no half of an emoji alone`;
 }
 
 /** The input of `save-version`. */

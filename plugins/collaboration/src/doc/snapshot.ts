@@ -5,6 +5,19 @@ import * as Y from 'yjs';
 import type { ListParts } from '~/doc/layout.ts';
 import type { Field, Leaf, ListField, RecordField, Shape } from '~/schema.ts';
 
+/** What a field of `kind` should hold, in the words every refusal uses. */
+function expected(kind: ReturnType<typeof kindOf>): string {
+  const what = {
+    text: 'text',
+    'rich-text': 'rich text',
+    list: 'a list',
+    record: 'a record',
+    leaf: 'a value',
+    shape: 'an object',
+  } as const;
+  return `expected ${what[kind]}`;
+}
+
 function freeze<T>(value: T): T {
   if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value;
 
@@ -40,12 +53,13 @@ function sameShallow(a: unknown, b: unknown): boolean {
  */
 export class Snapshots {
   private readonly ydoc: Y.Doc;
-  private readonly cache = new Map<Y.AbstractType<any>, unknown>();
+  /** Weak, so a deleted type and its copy go away with the type. */
+  private readonly cache = new WeakMap<Y.AbstractType<any>, unknown>();
   private readonly fixed = new Map<string, Record<string, unknown>>();
   /** Each stored value object's output, so an unchanged value keeps its object. */
   private readonly outputs = new WeakMap<object, unknown>();
   /** The types that changed since their copy was made. */
-  readonly dirty = new Set<Y.AbstractType<any>>();
+  readonly dirty = new WeakSet<Y.AbstractType<any>>();
   /** The list ID of each item object in a list copy, for `keyOf`. */
   readonly keys = new WeakMap<object, string>();
 
@@ -86,9 +100,7 @@ export class Snapshots {
       }
 
       default:
-        if (!(raw instanceof Y.AbstractType)) {
-          throw invalidChange(path, `expected a ${kindOf(field)}`);
-        }
+        if (!(raw instanceof Y.AbstractType)) throw invalidChange(path, expected(kindOf(field)));
 
         return this.type(field, raw, path);
     }
@@ -132,8 +144,14 @@ export class Snapshots {
         if (!(type instanceof Y.Map)) throw invalidChange(path, 'expected a record');
 
         const out: Record<string, unknown> = {};
+        // Keys are the app's own, so `__proto__` must become a key, not the prototype.
         for (const [key, raw] of type.entries()) {
-          out[key] = this.field((field as RecordField).item, raw, `${path}{}`);
+          Object.defineProperty(out, key, {
+            value: this.field((field as RecordField).item, raw, `${path}{}`),
+            enumerable: true,
+            writable: true,
+            configurable: true,
+          });
         }
 
         value = Object.freeze(out);

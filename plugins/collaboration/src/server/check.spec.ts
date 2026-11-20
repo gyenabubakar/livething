@@ -1,6 +1,7 @@
 import { DocCore } from '~/doc/core.ts';
+import { restoreFrom } from '~/doc/restore.ts';
 import { OUT_OF_ORDER } from '~/doc/wire.ts';
-import { doc, list, text } from '~/schema.ts';
+import { doc, list, record, text } from '~/schema.ts';
 import { applyChecked } from '~/server/check.ts';
 import { cycleUpdate, forwardUpdate } from '~/test/raw-update.ts';
 import { open, seed, task, taskBoard } from '~/test/task-board.ts';
@@ -71,7 +72,6 @@ describe('the server check', () => {
     ['an item of the wrong shape', (ydoc) => ydoc.getMap('tasks#items').set('x', 'not a task')],
     ['a deleted field of a task', (ydoc) => firstTask(ydoc).delete('assignee')],
     ['a number in a list order', (ydoc) => ydoc.getArray('tasks').push([42 as never])],
-    ['a field a task does not have', (ydoc) => firstTask(ydoc).set('priority', 1)],
     ['a value that is not JSON', (ydoc) => ydoc.getMap('~').set('archived', new Y.Map())],
     ['a value the schema refuses at the top', (ydoc) => ydoc.getMap('~').set('archived', 'yes')],
     ['text replaced by a value', (ydoc) => firstTask(ydoc).set('title', 'plain string')],
@@ -420,35 +420,6 @@ describe('the server check', () => {
 
   it.each([
     [
-      'a new task with a field a task does not have',
-      (raw: Y.Doc) => {
-        const item = new Y.Map<unknown>();
-        for (const [key, value] of Object.entries({
-          id: 't9',
-          column: 'todo',
-          done: false,
-          assignee: null,
-        })) {
-          item.set(key, value);
-        }
-
-        item.set('title', new Y.Text('Book a room'));
-        item.set('notes', new Y.XmlFragment());
-        item.set('junk', junk);
-        raw.getMap('tasks#items').set('x.1', item);
-        raw.getArray('tasks').push(['x.1']);
-      },
-    ],
-    [
-      'a new record entry with a field the entry does not have',
-      (raw: Y.Doc) => {
-        const entry = new Y.Map<unknown>();
-        entry.set('collapsed', ['done']);
-        entry.set('junk', junk);
-        raw.getMap('settings').set('u_x', entry);
-      },
-    ],
-    [
       'a huge attribute on a rich text element',
       (raw: Y.Doc) => {
         const notes = (
@@ -457,6 +428,41 @@ describe('the server check', () => {
         const paragraph = new Y.XmlElement('paragraph');
         notes.insert(0, [paragraph]);
         paragraph.setAttribute('note', junk);
+      },
+    ],
+    [
+      'a rich text attribute under 1024 characters but over 1024 bytes',
+      (raw: Y.Doc) => {
+        const notes = (
+          raw.getMap('tasks#items').get(raw.getArray<string>('tasks').get(0)!) as Y.Map<unknown>
+        ).get('notes') as Y.XmlFragment;
+        const paragraph = new Y.XmlElement('paragraph');
+        notes.insert(0, [paragraph]);
+        paragraph.setAttribute('note', '日'.repeat(400));
+      },
+    ],
+    [
+      'a Yjs type as a rich text attribute',
+      (raw: Y.Doc) => {
+        const notes = (
+          raw.getMap('tasks#items').get(raw.getArray<string>('tasks').get(0)!) as Y.Map<unknown>
+        ).get('notes') as Y.XmlFragment;
+        const paragraph = new Y.XmlElement('paragraph');
+        notes.insert(0, [paragraph]);
+        paragraph.setAttribute('note', new Y.Map() as unknown as string);
+      },
+    ],
+    [
+      'rich text nested more than 100 elements deep',
+      (raw: Y.Doc) => {
+        let parent: Y.XmlFragment | Y.XmlElement = (
+          raw.getMap('tasks#items').get(raw.getArray<string>('tasks').get(0)!) as Y.Map<unknown>
+        ).get('notes') as Y.XmlFragment;
+        for (let depth = 0; depth < 101; depth += 1) {
+          const next = new Y.XmlElement('blockGroup');
+          parent.insert(0, [next]);
+          parent = next;
+        }
       },
     ],
     [
@@ -486,6 +492,165 @@ describe('the server check', () => {
     expect(result.ok).toBe(false);
     expect(server.read()).toEqual(before);
     expect(Y.encodeStateAsUpdate(server.ydoc).length).toBeLessThan(size + 300);
+  });
+
+  it('keeps a field removed from the doc type unread, so undo and restore of old items work', () => {
+    // Polls and settings stored while the doc type still had a `legacy` field.
+    const before = open(
+      doc('poll-board', {
+        polls: list({ id: v.string(), legacy: v.optional(v.string(), 'x') }),
+        settings: record({ legacy: v.optional(v.string(), 'x') }),
+        legacyFlag: v.optional(v.boolean(), false),
+      }),
+    );
+    before.change((d) => {
+      d.polls.push({ id: 'p1', legacy: 'old' });
+      d.settings.set('u_amara', { legacy: 'old' });
+      d.legacyFlag = true;
+    });
+    const pollBoard = doc('poll-board', {
+      polls: list({ id: v.string() }),
+      settings: record({ theme: v.optional(v.string(), 'light') }),
+    });
+    const server = new DocCore(pollBoard);
+    Y.applyUpdate(server.ydoc, Y.encodeStateAsUpdate(before.ydoc));
+
+    const client = open(pollBoard);
+    Y.applyUpdate(client.ydoc, Y.encodeStateAsUpdate(server.ydoc));
+    function send(edit: () => void) {
+      return applyChecked(server, updateOf(client.ydoc, edit), FROM_CLIENT);
+    }
+
+    expect(send(() => client.change((d) => d.polls.delete(0))).ok).toBe(true);
+    expect(send(() => client.history.undo()).ok).toBe(true);
+    expect(send(() => client.change((d) => d.settings.delete('u_amara'))).ok).toBe(true);
+    expect(send(() => client.history.undo()).ok).toBe(true);
+
+    // A version saved under the old doc type, restored over items made since.
+    const version = new Y.Doc();
+    Y.applyUpdate(version, Y.encodeStateAsUpdate(before.ydoc));
+    expect(send(() => client.change((d) => d.polls.push({ id: 'p2' }))).ok).toBe(true);
+    const poll = client.ydoc.getMap('polls#items').values().next().value as Y.Map<unknown>;
+    expect(send(() => poll.delete('legacy')).ok).toBe(true);
+
+    expect(send(() => client.ydoc.getMap('~').delete('legacyFlag')).ok).toBe(true);
+    expect(send(() => client.change(() => restoreFrom(client.ydoc, version, pollBoard))).ok).toBe(
+      true,
+    );
+
+    expect(server.read()).toEqual(client.state.get());
+    expect(server.read().polls).toEqual([{ id: 'p1' }]);
+  });
+
+  it('refuses Yjs types nested past 200 deep before applying them, so the item can still go', () => {
+    const { server, amara } = setup();
+    const before = server.read();
+    // Nested one level at a time: Yjs itself overflows when it nests a deep chain at once.
+    function nest(levels: number, start: Y.Map<unknown>): Y.Map<unknown> {
+      let parent = start;
+      for (let level = 0; level < levels; level += 1) {
+        const next = new Y.Map<unknown>();
+        parent.set('junk', next);
+        parent = next;
+      }
+
+      return parent;
+    }
+
+    const deep = applyChecked(
+      server,
+      updateOf(amara.ydoc, () => nest(2500, firstTask(amara.ydoc))),
+      FROM_CLIENT,
+    );
+
+    expect(deep).toMatchObject({ ok: false, reason: expect.stringMatching(/nest at most 200/) });
+    expect(server.read()).toEqual(before);
+  });
+
+  it('refuses a chain of Yjs types that grows past 200 deep over several updates', () => {
+    const { server } = setup();
+    const raw = new Y.Doc();
+    Y.applyUpdate(raw, Y.encodeStateAsUpdate(server.ydoc));
+    let tip = firstTask(raw);
+    const results = [0, 1].map(() =>
+      applyChecked(
+        server,
+        updateOf(raw, () => {
+          for (let level = 0; level < 150; level += 1) {
+            const next = new Y.Map<unknown>();
+            tip.set('junk', next);
+            tip = next;
+          }
+        }),
+        FROM_CLIENT,
+      ),
+    );
+
+    expect(results[0]!.ok).toBe(true);
+    expect(results[1]).toMatchObject({
+      ok: false,
+      reason: expect.stringMatching(/nest at most 200/),
+    });
+    const raw2 = new Y.Doc();
+    Y.applyUpdate(raw2, Y.encodeStateAsUpdate(server.ydoc));
+    expect(
+      applyChecked(
+        server,
+        updateOf(raw2, () => raw2.getArray('tasks').delete(0, 1)),
+        FROM_CLIENT,
+      ).ok,
+    ).toBe(true);
+  });
+
+  it('takes an undo that deletes a value with a default, and refuses deleting one without', () => {
+    // A poll stored before `closed` was added to the doc type, so its map has no `closed`.
+    const before = open(
+      doc('poll-board', { polls: list({ id: v.string(), question: v.string() }) }),
+    );
+    before.change((d) => d.polls.push({ id: 'p1', question: 'Lunch?' }));
+    const pollBoard = doc('poll-board', {
+      polls: list({
+        id: v.string(),
+        question: v.string(),
+        closed: v.optional(v.boolean(), false),
+      }),
+    });
+    const server = new DocCore(pollBoard);
+    Y.applyUpdate(server.ydoc, Y.encodeStateAsUpdate(before.ydoc));
+
+    const client = open(pollBoard);
+    Y.applyUpdate(client.ydoc, Y.encodeStateAsUpdate(server.ydoc));
+    function send(edit: () => void) {
+      return applyChecked(server, updateOf(client.ydoc, edit), FROM_CLIENT);
+    }
+
+    expect(send(() => client.change((d) => void (d.polls.at(0)!.closed = true))).ok).toBe(true);
+    expect(send(() => client.history.undo()).ok).toBe(true);
+    expect(server.read().polls[0]!.closed).toBe(false);
+
+    const item = client.ydoc.getMap('polls#items').values().next().value as Y.Map<unknown>;
+    expect(send(() => item.delete('question'))).toMatchObject({ ok: false });
+  });
+
+  it('takes rich text 100 elements deep, with text in the deepest one', () => {
+    const { server, amara } = setup();
+
+    const result = applyChecked(
+      server,
+      updateOf(amara.ydoc, () => {
+        let parent: Y.XmlFragment = amara.yjs.at((p) => p.tasks[0]?.notes);
+        for (let depth = 0; depth < 100; depth += 1) {
+          const next = new Y.XmlElement('blockGroup');
+          parent.insert(0, [next]);
+          parent = next;
+        }
+
+        parent.insert(0, [new Y.XmlText('Deep')]);
+      }),
+      FROM_CLIENT,
+    );
+
+    expect(result.ok).toBe(true);
   });
 
   it('takes rich text as an editor writes it: elements, small attributes and marks', () => {

@@ -68,6 +68,47 @@ describe('restoreFrom', () => {
     expect(board.state.get().tasks[0]!.notes).toBe('Agenda');
   });
 
+  it('brings back the format marks of a text field, and removes ones added since', () => {
+    const board = seed();
+    const title = board.yjs.at((p) => p.title);
+    board.change(() => title.format(0, 3, { bold: true }));
+    const version = versionOf(board);
+
+    board.change(() => {
+      title.format(0, 3, { bold: null });
+      title.format(3, 3, { italic: true });
+    });
+    board.change(() => restoreFrom(board.yjs.doc, version, taskBoard));
+
+    expect(title.toDelta()).toEqual([
+      { insert: 'Lau', attributes: { bold: true } },
+      { insert: 'nch' },
+    ]);
+  });
+
+  it('brings back a rich text embed that changed since the version', () => {
+    const board = seed();
+    let embedded!: Y.XmlText;
+    board.change(() => {
+      const notes = board.yjs.at((p) => p.tasks[0]?.notes);
+      embedded = new Y.XmlText();
+      notes.insert(0, [embedded]);
+      embedded.insertEmbed(0, { src: 'floor-plan-v1.png' });
+    });
+    const version = versionOf(board);
+
+    board.change(() => {
+      embedded.delete(0, 1);
+      embedded.insertEmbed(0, { src: 'floor-plan-v2.png' });
+    });
+    board.change(() => restoreFrom(board.yjs.doc, version, taskBoard));
+
+    const notes = board.yjs.at((p) => p.tasks[0]?.notes);
+    expect((notes.get(0) as Y.XmlText).toDelta()).toEqual([
+      { insert: { src: 'floor-plan-v1.png' } },
+    ]);
+  });
+
   it('is one undo step, so undo brings back what the restore replaced', () => {
     const board = seed();
     const version = versionOf(board);

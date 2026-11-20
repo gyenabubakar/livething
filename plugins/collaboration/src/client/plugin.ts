@@ -1,14 +1,12 @@
 import { awareness, binary, channels, clientRequests, plugin } from '@livething/client';
 import { LiveThingConfigError } from '@livething/core';
 import { createDocHandle } from '~/client/doc-handle.ts';
-import { FAMILY, PLUGIN_ID, roomName } from '~/doc/wire.ts';
+import { docIdProblem, FAMILY, MAX_DELAY_MS, PLUGIN_ID, roomName } from '~/doc/wire.ts';
 import { docTypesByName } from '~/schema.ts';
 import type { CollaborationWire } from '~/client/contract.ts';
 import type { DocHandle, DocRoom } from '~/client/doc-handle.ts';
 import type { CollaborationStorage } from '~/doc/storage.ts';
 import type { DocDef, DocNamed } from '~/schema.ts';
-
-const MAX_ROOM_NAME = 256;
 
 export interface CollaborationClientOptions<TDocs extends readonly DocDef[]> {
   /** Every doc type the app has: the same list the server gets. */
@@ -22,8 +20,9 @@ export interface CollaborationClientOptions<TDocs extends readonly DocDef[]> {
   readonly closeDelayMs?: number;
   /**
    * Gets errors no call can throw: content that does not match the schema (from another app
-   * version), a store listener that threw, or a failed device write. Default: they are
-   * reported like an uncaught error.
+   * version), a store listener that threw, a failed device write, a change the server can
+   * never get (`update-not-sent`), a failed sync after a rejoin, or the server removing this
+   * client from a doc. Default: they are reported like an uncaught error.
    */
   onError?(error: unknown): void;
 }
@@ -35,7 +34,7 @@ export interface CollaborationClient<TDocs extends readonly DocDef[]> {
    * `socket.channel()`. It does nothing on the network until `open()`. A type the app does
    * not list is a type error.
    *
-   * @throws {LiveThingConfigError} For an unknown type, or an ID that is empty or too long
+   * @throws {LiveThingConfigError} For an unknown type, or an ID that is empty, too long or holds half of an emoji alone
    * (the type, a `:` and the ID are at most 256 characters).
    */
   doc<N extends TDocs[number]['name']>(type: N, id: string): DocHandle<DocNamed<TDocs, N>>;
@@ -49,7 +48,7 @@ export interface CollaborationClient<TDocs extends readonly DocDef[]> {
  * @param options `docs` (the same list the server gets), and the optional `storage`,
  * `closeDelayMs` and `onError`.
  * @throws {LiveThingConfigError} When a doc type is listed twice, `docs` is empty, or
- * `closeDelayMs` is not a whole number of 0 or more.
+ * `closeDelayMs` is not a whole number from 0 to 2147483647.
  *
  * @example
  * ```ts
@@ -76,9 +75,9 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
 ) {
   const defs = docTypesByName(options.docs);
   const closeDelayMs = options.closeDelayMs ?? 1000;
-  if (!Number.isInteger(closeDelayMs) || closeDelayMs < 0) {
+  if (!Number.isInteger(closeDelayMs) || closeDelayMs < 0 || closeDelayMs > MAX_DELAY_MS) {
     throw new LiveThingConfigError(
-      'collaboration: `closeDelayMs` must be a whole number of 0 or more',
+      `collaboration: \`closeDelayMs\` must be a whole number from 0 to ${MAX_DELAY_MS}`,
     );
   }
 
@@ -87,13 +86,18 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
     dependencies: [channels, binary, awareness, clientRequests],
     setup(socket) {
       const handles = new Map<string, DocHandle<DocDef>>();
+      // Not this call's error: report it the way an uncaught error is. An `onError` that throws
+      // is reported the same way, so its error never lands inside a Yjs transaction.
       function onError(error: unknown) {
-        if (options.onError) {
-          options.onError(error);
-          return;
+        try {
+          if (options.onError) {
+            options.onError(error);
+            return;
+          }
+        } catch (thrown) {
+          error = thrown;
         }
 
-        // Not this call's error: report it the way an uncaught error is.
         queueMicrotask(() => {
           throw error;
         });
@@ -104,12 +108,10 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
           const def = defs.get(type);
           if (!def) throw new LiveThingConfigError(`collaboration: there is no doc type '${type}'`);
 
+          const problem = docIdProblem(type, id);
+          if (problem) throw new LiveThingConfigError(problem);
+
           const room = roomName(type, id);
-          if (typeof id !== 'string' || id === '' || room.length > MAX_ROOM_NAME) {
-            throw new LiveThingConfigError(
-              `collaboration: a doc ID must be a string of 1 to ${MAX_ROOM_NAME - type.length - 1} characters`,
-            );
-          }
 
           let handle = handles.get(room);
           if (!handle) {

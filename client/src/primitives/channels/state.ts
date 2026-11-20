@@ -225,6 +225,14 @@ export class ChannelState {
     this.setStatus('subscribing');
   }
 
+  /**
+   * A `subscribe()` that never became active was dropped with the socket. The reconnect
+   * does not join it again, so it is not `'subscribing'` any more.
+   */
+  markSubscribeDropped(): void {
+    this.setStatus('unsubscribed');
+  }
+
   /** Mark active and tell `onSubscribed` listeners who started it. */
   markSubscribed(source: SubscribeSource): void {
     // A duplicate confirmation for an already-live subscription (e.g. a

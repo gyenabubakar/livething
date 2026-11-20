@@ -47,6 +47,7 @@ export type Field = TextField | RichTextField | ListField<any> | RecordField<any
  * @example
  * ```ts
  * const taskBoard = doc('task-board', { title: text() })
+ * // On the client, `board` is an open doc of this type.
  * board.change((d) => {
  *   d.title = 'Launch plan'
  * })
@@ -69,6 +70,7 @@ export function text(): TextField {
  * @example
  * ```ts
  * const taskBoard = doc('task-board', { tasks: list({ id: v.string(), notes: richText() }) })
+ * // On the client, `board` is an open doc of this type.
  * const notes = board.yjs.at((p) => p.tasks[0]?.notes) // Y.XmlFragment
  * ```
  */
@@ -92,6 +94,7 @@ export function richText(): RichTextField {
  * const taskBoard = doc('task-board', {
  *   tasks: list({ id: v.string(), title: text(), done: v.boolean() }),
  * })
+ * // On the client, `board` is an open doc of this type.
  * board.change((d) => d.tasks.move(0, 2))
  * ```
  */
@@ -111,6 +114,7 @@ export function list<const TItem extends Field>(item: TItem): ListField<TItem> {
  * const taskBoard = doc('task-board', {
  *   settings: record({ collapsed: v.array(v.string()) }), // by user ID
  * })
+ * // On the client, `board` is an open doc of this type.
  * board.change((d) => d.settings.set(userId, { collapsed: ['done'] }))
  * ```
  */
@@ -392,8 +396,17 @@ export type Input<F> = F extends TextField | RichTextField
       : F extends Leaf
         ? StandardSchemaV1.InferInput<F>
         : F extends Shape
-          ? Simplify<{ readonly [K in keyof F]: Input<F[K]> }>
+          ? Simplify<
+              { readonly [K in Exclude<keyof F, OptionalKeys<F>>]: Input<F[K]> } & {
+                readonly [K in OptionalKeys<F>]?: Input<F[K]>;
+              }
+            >
           : never;
+
+/** The keys of a shape that a write may leave out: their schema has a default, or takes `undefined`. */
+type OptionalKeys<F extends Shape> = {
+  [K in keyof F]: undefined extends Input<F[K]> ? K : never;
+}[keyof F];
 
 /**
  * A list in a draft. Read and write items through it; assigning a new array to a list field
@@ -406,6 +419,7 @@ export interface DraftList<I extends Field> extends Iterable<Draft<I>> {
   /**
    * The first item `predicate` accepts. The predicate gets each item as it was when the
    * `change()` began, so it does not see what this change wrote. Read the draft for that.
+   * An item this change added, or replaced with `set()`, is given as the change wrote it.
    */
   find(predicate: (item: Snapshot<I>) => boolean): Draft<I> | undefined;
   /** The index of the first item `predicate` accepts, with the same rule as `find`. */

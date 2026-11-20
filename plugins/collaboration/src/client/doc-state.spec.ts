@@ -1,10 +1,12 @@
 import { LiveThingError } from '@livething/core';
+import { DocCore } from '~/doc/core.ts';
 import { doc, list, record, richText, text } from '~/schema.ts';
 import { ids, open, seed, task, taskBoard, twoOffline } from '~/test/task-board.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { z } from 'zod';
+import type { Draft } from '~/schema.ts';
 
 describe('reading', () => {
   it('gives a new doc a full snapshot, with defaults', () => {
@@ -40,6 +42,65 @@ describe('reading', () => {
     expect(Object.isFrozen(state.settings['u_amara']!.collapsed)).toBe(true);
   });
 
+  it('reads a record key named __proto__ as a key, not as the prototype', () => {
+    const board = seed();
+    board.change((d) => {
+      d.settings.set('__proto__', { collapsed: ['done'] });
+      d.settings.set('u_amara', { collapsed: [] });
+    });
+    const { settings } = board.state.get();
+
+    expect(Object.keys(settings)).toEqual(['__proto__', 'u_amara']);
+    expect(Object.getPrototypeOf(settings)).toBe(Object.prototype);
+  });
+
+  it('stores a copy of a written value, so changing yours later changes nothing', () => {
+    const board = seed();
+    const collapsed = ['done'];
+    board.change((d) => d.settings.set('u_amara', { collapsed }));
+    board.state.get();
+    collapsed.push('todo');
+
+    const copy = open(taskBoard, new Y.Doc());
+    Y.applyUpdate(copy.ydoc, Y.encodeStateAsUpdate(board.ydoc));
+
+    expect(copy.state.get().settings['u_amara']!.collapsed).toEqual(['done']);
+    expect(collapsed).toEqual(['done', 'todo']);
+  });
+
+  it('runs a select() that threw again on the next read, instead of giving undefined', () => {
+    const board = seed();
+    let fail = true;
+    const title = board.select((s) => {
+      if (fail) throw new Error('not ready');
+
+      return s.title;
+    });
+
+    expect(() => title.get()).toThrow('not ready');
+    fail = false;
+
+    expect(title.get()).toBe('Launch');
+  });
+
+  it('keeps notifying an anchor watcher after an earlier one unsubscribed twice', () => {
+    const board = seed();
+    const anchor = board.anchor.text((p) => p.title, { from: 0, to: 6 });
+    const place = board.anchor.watch(anchor);
+    const stop = place.subscribe(() => {});
+    stop();
+
+    stop();
+
+    const seen = vi.fn();
+    place.subscribe(seen);
+    board.change((d) => {
+      d.title = `The ${d.title}`;
+    });
+
+    expect(seen).toHaveBeenCalledWith(expect.objectContaining({ from: 4, to: 10 }));
+  });
+
   it('notifies once for one change()', () => {
     const board = seed();
     const listener = vi.fn();
@@ -73,6 +134,22 @@ describe('reading', () => {
     notes.insert(0, [new Y.XmlElement('paragraph'), new Y.XmlElement('paragraph')]);
     (notes.get(0) as Y.XmlElement).insert(0, [new Y.XmlText('Agenda')]);
     (notes.get(1) as Y.XmlElement).insert(0, [new Y.XmlText('Room 4')]);
+
+    expect(board.state.get().tasks[0]!.notes).toBe('Agenda\nRoom 4');
+  });
+
+  it('gives each nested block its own line, as BlockNote and lists nest them', () => {
+    const board = seed();
+    const notes = board.yjs.at((p) => p.tasks[0]?.notes);
+    const group = new Y.XmlElement('blockGroup');
+    notes.insert(0, [group]);
+    for (const line of ['Agenda', 'Room 4']) {
+      const container = new Y.XmlElement('blockContainer');
+      group.push([container]);
+      const paragraph = new Y.XmlElement('paragraph');
+      container.insert(0, [paragraph]);
+      paragraph.insert(0, [new Y.XmlText(line)]);
+    }
 
     expect(board.state.get().tasks[0]!.notes).toBe('Agenda\nRoom 4');
   });
@@ -197,6 +274,134 @@ describe('writing', () => {
     );
     board.change((d) => void (d.extra = new Uint8Array([104, 105])));
     expect(board.state.get().extra).toEqual(new Uint8Array([104, 105]));
+  });
+
+  it('stores only the bytes of a Uint8Array view, not the whole buffer it views', () => {
+    const anyValue = doc('loose', { extra: v.optional(v.any(), null) });
+    const board = open(anyValue);
+    const view = new Uint8Array(1_000_000).subarray(10, 20);
+
+    board.change((d) => void (d.extra = view));
+
+    const stored = board.state.get().extra as Uint8Array;
+    expect(stored).toHaveLength(10);
+    expect(stored.buffer.byteLength).toBe(10);
+  });
+
+  it('refuses an object with its own __proto__ key, which a peer would read differently', () => {
+    const anyValue = doc('loose', { extra: v.optional(v.any(), null) });
+    const board = open(anyValue);
+
+    expect(() =>
+      board.change((d) => void (d.extra = JSON.parse('{"__proto__":{"admin":true}}'))),
+    ).toThrow(expect.objectContaining({ code: 'invalid-change' }));
+  });
+
+  it('refuses a string with half of an emoji, which UTF-8 would turn into another character', () => {
+    const anyValue = doc('loose', { extra: v.optional(v.any(), null) });
+    const board = open(anyValue);
+
+    expect(() => board.change((d) => void (d.extra = 'ab\ud83d'))).toThrow(
+      expect.objectContaining({ code: 'invalid-change' }),
+    );
+    expect(() => board.change((d) => void (d.extra = { ['\udc00']: 1 }))).toThrow(
+      expect.objectContaining({ code: 'invalid-change' }),
+    );
+    board.change((d) => void (d.extra = 'ab😀'));
+    expect(board.state.get().extra).toBe('ab😀');
+  });
+
+  it('refuses half of an emoji in text, rich text and record keys too', () => {
+    const board = seed();
+    const half = 'Launch \ud83d';
+    const writes: ((d: Draft<typeof taskBoard.shape>) => void)[] = [
+      (d) => void (d.title = half),
+      (d) => void (d.tasks.at(0)!.title = half),
+      (d) => d.tasks.push({ ...task('t9'), notes: half }),
+      (d) => d.tasks.push({ ...task('t9'), title: half }),
+      (d) => d.settings.set(half, { collapsed: [] }),
+    ];
+
+    for (const write of writes) {
+      expect(() => board.change(write)).toThrow(
+        expect.objectContaining({ code: 'invalid-change' }),
+      );
+    }
+
+    expect(board.state.get().title).toBe('Launch');
+  });
+
+  it('refuses half of an emoji in a record key of a new item, and refuses writes to a deleted item', () => {
+    const polls = doc('polls', {
+      polls: list({
+        id: v.string(),
+        votes: record(v.number()),
+        options: list(v.string()),
+        meta: { closed: v.boolean() },
+      }),
+    });
+    const board = open(polls);
+    board.change((d) =>
+      d.polls.push({ id: 'p1', votes: {}, options: [], meta: { closed: false } }),
+    );
+    const invalid = expect.objectContaining({ code: 'invalid-change' });
+
+    expect(() =>
+      board.change((d) =>
+        d.polls.push({ id: 'p2', votes: { ['\ud83d']: 1 }, options: [], meta: { closed: false } }),
+      ),
+    ).toThrow(invalid);
+    // Drafts taken before the delete: a write through them would be lost.
+    expect(() =>
+      board.change((d) => {
+        const { votes } = d.polls.at(0)!;
+        d.polls.delete(0);
+        votes.set('u_amara', 1);
+      }),
+    ).toThrow(invalid);
+    expect(() =>
+      board.change((d) => {
+        const { options } = d.polls.at(0)!;
+        d.polls.delete(0);
+        options.push('Pizza');
+      }),
+    ).toThrow(invalid);
+    expect(() =>
+      board.change((d) => {
+        const poll = d.polls.at(0)!;
+        d.polls.delete(0);
+        return poll.meta.closed;
+      }),
+    ).toThrow(invalid);
+    expect(() =>
+      board.change((d) => {
+        const poll = d.polls.at(0)!;
+        d.polls.delete(0);
+        poll.votes.set('u_amara', 1);
+      }),
+    ).toThrow(invalid);
+    expect(() =>
+      board.change((d) => {
+        const poll = d.polls.at(0)!;
+        d.polls.delete(0);
+        poll.options.push('Pizza');
+      }),
+    ).toThrow(invalid);
+
+    expect(board.state.get().polls).toHaveLength(1);
+  });
+
+  it('gives bytes in a snapshot as a copy, so writing to them does not change the doc', () => {
+    const files = doc('files', { data: v.optional(v.instance(Uint8Array), new Uint8Array()) });
+    const board = open(files);
+    board.change((d) => void (d.data = new Uint8Array([1, 2, 3])));
+
+    (board.state.get().data as Uint8Array)[0] = 99;
+
+    const copy = open(files, new Y.Doc());
+    Y.applyUpdate(copy.ydoc, Y.encodeStateAsUpdate(board.ydoc));
+    expect([...(copy.state.get().data as Uint8Array)]).toEqual([1, 2, 3]);
+    expect([...(board.ydoc.getMap('~').get('data') as Uint8Array)]).toEqual([1, 2, 3]);
   });
 
   it('refuses a value that is not JSON', () => {
@@ -535,6 +740,37 @@ describe('a draft after its change()', () => {
     expect(() => board.change(() => tasks!.push(task('t9')))).toThrow(/inside its change\(\)/);
     expect(ids(board)).toEqual(['t1', 't2', 't3']);
     expect(board.state.get().tasks[0]!.title).toBe('Write notes');
+  });
+
+  it('refuses a write to an item the same change deleted, with invalid-change', () => {
+    const board = seed();
+
+    expect(() =>
+      board.change((d) => {
+        const first = d.tasks.at(0)!;
+        d.tasks.delete(0);
+        first.title = 'Lost';
+      }),
+    ).toThrow(expect.objectContaining({ code: 'invalid-change' }));
+    expect(ids(board)).toEqual(['t1', 't2', 't3']);
+  });
+});
+
+describe('find() and findIndex() in a change', () => {
+  it('see each item as it was when the change began, read before or not', () => {
+    for (const readFirst of [false, true]) {
+      // A bare DocCore, as the server has it: nothing has read it yet.
+      const core = new DocCore(taskBoard);
+      Y.applyUpdate(core.ydoc, Y.encodeStateAsUpdate(seed().ydoc));
+      if (readFirst) core.read();
+
+      const index = core.change((d) => {
+        d.tasks.at(0)!.done = true;
+        return d.tasks.findIndex((t) => t.done);
+      });
+
+      expect(index).toBe(-1);
+    }
   });
 });
 

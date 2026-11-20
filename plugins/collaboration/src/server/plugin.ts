@@ -9,7 +9,17 @@ import { plugin } from '@livething/server/plugins';
 import { tags } from '@livething/server/tags';
 import { DocCore } from '~/doc/core.ts';
 import { eachPart, joinBytes } from '~/doc/parts.ts';
-import { FAMILY, MAX_PARTS, PLUGIN_ID, ROOM_TEMPLATE, roomName } from '~/doc/wire.ts';
+import {
+  docIdProblem,
+  FAMILY,
+  MAX_DELAY_MS,
+  MAX_PARTS,
+  MAX_UPDATE_BYTES,
+  OUT_OF_ORDER,
+  PLUGIN_ID,
+  ROOM_TEMPLATE,
+  roomName,
+} from '~/doc/wire.ts';
 import { docTypesByName } from '~/schema.ts';
 import { checkAwareness, wireAwareness } from '~/server/awareness.ts';
 import { DocRegistry } from '~/server/registry.ts';
@@ -57,9 +67,6 @@ const InvalidMessage = error(
   ),
 );
 
-/** The most bytes of one update, all its parts together. */
-const MAX_UPDATE_BYTES = 32 * 1024 * 1024;
-const MAX_ROOM_NAME = 256;
 /** One member's awareness: room for every lock (32 × 128 bytes), a cursor and the app's fields. */
 const MAX_AWARENESS_BYTES = 8 * 1024;
 
@@ -159,7 +166,8 @@ export interface ServerVersions<D extends DocDef> {
    *
    * @param label 1 to 200 characters, such as `'Nightly'`.
    * @param options `author`: the user shown as the one who saved it. Default `null`.
-   * @throws {LiveThingConfigError} For a label that is empty or too long.
+   * @throws {LiveThingConfigError} For a label that is empty, too long or holds half of an emoji
+   * alone.
    */
   save(label: string, options?: { readonly author?: string | null }): Promise<VersionInfo>;
   /** The doc's versions, newest first. */
@@ -189,7 +197,7 @@ export interface CollaborationApi<TDocs extends readonly DocDef[]> {
   /**
    * One doc of the app, by type and ID, typed by its doc type. Nothing loads until you use it.
    *
-   * @throws {LiveThingConfigError} For an unknown type, or an ID that is empty or too long
+   * @throws {LiveThingConfigError} For an unknown type, or an ID that is empty, too long or holds half of an emoji alone
    * (the type, a `:` and the ID are at most 256 characters).
    */
   doc<N extends TDocs[number]['name']>(type: N, id: string): ServerDoc<DocNamed<TDocs, N>>;
@@ -200,13 +208,10 @@ function checkRef(defs: ReadonlyMap<string, DocDef>, type: unknown, id: unknown)
     throw new LiveThingConfigError(`collaboration: there is no doc type '${String(type)}'`);
   }
 
-  if (typeof id !== 'string' || id === '' || roomName(type, id).length > MAX_ROOM_NAME) {
-    throw new LiveThingConfigError(
-      `collaboration: a doc ID must be a string of 1 to ${MAX_ROOM_NAME - type.length - 1} characters`,
-    );
-  }
+  const problem = docIdProblem(type, id);
+  if (problem) throw new LiveThingConfigError(problem);
 
-  return { type, id };
+  return { type, id: id as string };
 }
 
 function errorData(cause: unknown): Record<string, unknown> {
@@ -319,11 +324,15 @@ function notFound(doc: DocRef, id: string) {
   return VersionNotFound({ type: doc.type, id: doc.id, version: id });
 }
 
-function versionsOf(
-  registry: DocRegistry,
-  storage: ServerStorage,
-  maxVersions: number | undefined,
-): Versions {
+interface VersionsOptions {
+  readonly registry: DocRegistry;
+  readonly storage: ServerStorage;
+  readonly maxVersions: number | undefined;
+  readonly reportError: (message: string, cause: unknown) => void;
+}
+
+function versionsOf(options: VersionsOptions): Versions {
+  const { registry, storage, maxVersions, reportError } = options;
   return {
     async save(doc, label, author) {
       const version: VersionInfo = {
@@ -334,9 +343,14 @@ function versionsOf(
       };
 
       await storage.saveVersion(doc, version, await registry.state(doc));
+      // The version is stored, so a failed trim is logged, not thrown: the next save trims again.
       if (maxVersions !== undefined) {
-        const extra = (await storage.listVersions(doc)).slice(maxVersions);
-        for (const old of extra) await storage.deleteVersion(doc, old.id);
+        try {
+          const extra = (await storage.listVersions(doc)).slice(maxVersions);
+          for (const old of extra) await storage.deleteVersion(doc, old.id);
+        } catch (cause) {
+          reportError(`could not delete old versions of '${doc.type}:${doc.id}'`, cause);
+        }
       }
 
       return version;
@@ -367,15 +381,15 @@ function versionDoc(state: Uint8Array): Y.Doc {
  * The Collaboration plugin for the server. Returns a plugin factory: list
  * `HuddleCollaboration()` in the host's capabilities, next to `channels()`.
  *
- * Each doc type is a channel family of the plugin, and each doc is one room in it. The
+ * The plugin has one channel family, `docs`, and each doc is one room in it, `<type>:<id>`. The
  * server keeps a loaded copy of each open doc, checks every update against the doc's schema
  * (and undoes a bad one for everyone), stores updates, and unloads a doc when its last
  * member leaves. Server and admin code reach the docs with
  * `ctx.plugin('livething:collaboration')` and `admin.plugin('livething:collaboration')`.
  *
  * @throws {LiveThingConfigError} When a doc type is listed twice, `docs` is empty,
- * `saveDelayMs` is not a whole number of 0 or more, or `maxVersions` is not a whole number of
- * 1 or more.
+ * `saveDelayMs` is not a whole number from 0 to 2147483647, or `maxVersions` is not a whole
+ * number of 1 or more.
  *
  * @example
  * ```ts
@@ -397,9 +411,9 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
 ) {
   const defs = docTypesByName(options.docs);
   const saveDelayMs = options.saveDelayMs ?? 2000;
-  if (!Number.isInteger(saveDelayMs) || saveDelayMs < 0) {
+  if (!Number.isInteger(saveDelayMs) || saveDelayMs < 0 || saveDelayMs > MAX_DELAY_MS) {
     throw new LiveThingConfigError(
-      'collaboration: `saveDelayMs` must be a whole number of 0 or more',
+      `collaboration: \`saveDelayMs\` must be a whole number from 0 to ${MAX_DELAY_MS}`,
     );
   }
 
@@ -419,6 +433,10 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
       tags((ephemeral) => [ephemeral('access', t<AccessTag>())]),
       errors([DocNotFound, AccessDenied, VersionNotFound, InvalidMessage]),
     ],
+    // Store every doc's writes and run the saves that are due, before the server stops.
+    async onShutdown(ctx) {
+      await stateOf(ctx).registry.flush();
+    },
   });
 
   /** The plugin state of the running server a handler runs on. */
@@ -556,8 +574,10 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
           );
         });
       } catch (cause) {
+        // Nothing was undone, so the client must not drop its edit: this reason makes it sync
+        // again, which sends what the server lacks once the doc loads.
         ctx.channel.binary.send('refused', undefined, {
-          info: { n: info.n, reason: 'the server could not open the doc' },
+          info: { n: info.n, reason: OUT_OF_ORDER },
         });
         throw cause;
       }
@@ -631,6 +651,10 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
       }
 
       const storage = options.storage ?? sqlStorage(ctx.sql);
+      function reportError(message: string, cause: unknown): void {
+        ctx.log.error(`[livething] collaboration: ${message}`, errorData(cause));
+      }
+
       const registry = new DocRegistry({
         defs,
         storage,
@@ -650,13 +674,12 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
                 } as SaveEvent<TDocs>),
             }
           : {}),
-        reportError: (message, cause) =>
-          ctx.log.error(`[livething] collaboration: ${message}`, errorData(cause)),
+        reportError,
       });
       const state: PluginState = {
         parts: new Parts(),
         registry,
-        versions: versionsOf(registry, storage, maxVersions),
+        versions: versionsOf({ registry, storage, maxVersions, reportError }),
       };
 
       const api: CollaborationApi<TDocs> = {

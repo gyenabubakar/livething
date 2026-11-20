@@ -129,7 +129,8 @@ export function compileChannelTemplate(
   flushLiteral();
   regexSource += '$';
 
-  return { template, regex: new RegExp(regexSource), paramNames };
+  // `s`: a param matches any character, a line break too, as a name like `room:a\nb` holds one.
+  return { template, regex: new RegExp(regexSource, 's'), paramNames };
 }
 
 /**

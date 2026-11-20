@@ -162,3 +162,136 @@ describe('DocRegistry', () => {
     expect(state.loads).toBe(loads + 1);
   });
 });
+
+describe('DocRegistry sending', () => {
+  it('stores a change even when sending it to the members throws', async () => {
+    const { registry, storedTitle } = setup(() => 1);
+    const options = (registry as unknown as { options: { broadcast: () => void } }).options;
+    options.broadcast = () => {
+      throw new Error('frame over the send limit');
+    };
+
+    await expect(
+      registry.change(launch, (d) => {
+        (d as { title: string }).title = 'Stored anyway';
+      }),
+    ).rejects.toThrow('send limit');
+
+    expect(storedTitle()).toBe('Stored anyway');
+  });
+});
+
+describe('DocRegistry receive', () => {
+  it('stores the whole doc after a failed write, even when the next update changes nothing', async () => {
+    const { registry, state, storedTitle } = setup(() => 1);
+    const client = open(taskBoard);
+    client.change((d) => {
+      d.title = 'Kept';
+    });
+    const update = Y.encodeStateAsUpdate(client.ydoc);
+
+    state.failing = true;
+    await registry.receive(launch, update, () => {});
+    state.failing = false;
+    await registry.receive(launch, update, () => {});
+
+    expect(storedTitle()).toBe('Kept');
+  });
+});
+
+describe('DocRegistry saves', () => {
+  it('runs one onSave at a time for a doc, even when one takes longer than the delay', async () => {
+    const { registry } = setup(() => 1);
+    let running = 0;
+    let most = 0;
+    const saved: string[] = [];
+
+    const options = (registry as unknown as { options: { onSave: unknown } }).options;
+    options.onSave = async (_doc: unknown, state: { title: string }) => {
+      running += 1;
+      most = Math.max(most, running);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      saved.push(state.title);
+      running -= 1;
+    };
+
+    await registry.change(launch, (d) => {
+      (d as { title: string }).title = 'First';
+    });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    await registry.change(launch, (d) => {
+      (d as { title: string }).title = 'Second';
+    });
+    await registry.flush();
+
+    expect(most).toBe(1);
+    expect(saved).toEqual(['First', 'Second']);
+  });
+});
+
+describe('DocRegistry saves with no members', () => {
+  it('runs one onSave at a time across an unload and a new load', async () => {
+    const { registry } = setup(() => 0);
+    let running = 0;
+    let most = 0;
+    const saved: string[] = [];
+
+    const options = (registry as unknown as { options: { onSave: unknown } }).options;
+    options.onSave = async (_doc: unknown, state: { title: string }) => {
+      running += 1;
+      most = Math.max(most, running);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      saved.push(state.title);
+      running -= 1;
+    };
+
+    function rename(title: string) {
+      return registry.change(launch, (d) => {
+        (d as { title: string }).title = title;
+      });
+    }
+
+    // A's save runs; B's queues behind it; the doc may unload; C loads it again.
+    await rename('A');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await rename('B');
+    await new Promise((resolve) => setTimeout(resolve, 62));
+
+    await rename('C');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(most).toBe(1);
+    expect(saved.at(-1)).toBe('C');
+  });
+});
+
+describe('DocRegistry.flush()', () => {
+  it('stores a doc whose last write failed, while a member keeps it loaded', async () => {
+    const { registry, state, storedTitle } = setup(() => 1);
+    state.failing = true;
+    await registry.change(launch, (d) => {
+      (d as { title: string }).title = 'Kept';
+    });
+    state.failing = false;
+
+    await registry.flush();
+
+    expect(storedTitle()).toBe('Kept');
+  });
+});
+
+describe('DocRegistry.restore()', () => {
+  it('refuses a version the schema now refuses, and leaves the doc as it was', async () => {
+    const { registry } = setup(() => 1);
+    await registry.change(launch, (d) => {
+      (d as { title: string }).title = 'Launch';
+    });
+    const version = new Y.Doc();
+    version.getMap('~').set('archived', 'yes');
+
+    await expect(registry.restore(launch, version)).rejects.toMatchObject({
+      code: 'invalid-change',
+    });
+    expect((await registry.read(launch)).title).toBe('Launch');
+  });
+});

@@ -20,6 +20,94 @@ interface Seen {
 
 /** The most bytes of one format mark in a text field (its name and its value as JSON). */
 const MAX_FORMAT_BYTES = 1024;
+/** How deep elements nest in rich text. Reading deeper rich text would run out of stack. */
+const MAX_RICH_DEPTH = 100;
+/**
+ * How deep Yjs types nest in a doc, counted from its root. Yjs deletes and copies nested
+ * types by recursion, so a chain thousands deep would make deleting, undoing or restoring
+ * the item run out of stack for good. A doc's own layout, with rich text 100 deep, stays far
+ * below it.
+ */
+const MAX_NESTING = 200;
+
+function idKey(id: Y.ID): string {
+  return `${id.client}:${id.clock}`;
+}
+
+/**
+ * Whether the update itself holds a chain of nested types deeper than `MAX_NESTING`. This
+ * runs before the update applies: undoing a deep chain after it applied would also run out
+ * of stack. It walks the decoded items with no recursion, and remembers what it found.
+ */
+function nestsTooDeep(decoded: ReturnType<typeof Y.decodeUpdate>): boolean {
+  const items = new Map<string, Y.Item>();
+  for (const struct of decoded.structs) {
+    if (struct instanceof Y.Item) items.set(idKey(struct.id), struct);
+  }
+
+  // An item's parent is written only on the first item of a list or a map key; the others
+  // name their neighbour (`origin`), whose parent is theirs.
+  const parents = new Map<string, string | null>();
+  function parentOf(key: string): string | null {
+    const path: string[] = [];
+    const seen = new Set<string>();
+    let current: string | undefined = key;
+    let found: string | null = null;
+    // Two neighbours can name each other (one as its left, one as its right): stop on a repeat.
+    while (current !== undefined && !seen.has(current)) {
+      if (parents.has(current)) {
+        found = parents.get(current)!;
+        break;
+      }
+
+      seen.add(current);
+      path.push(current);
+      const item = items.get(current);
+      const { parent } = item ?? {};
+      if (parent instanceof Y.ID) {
+        found = idKey(parent);
+        break;
+      }
+
+      const next = item && !parent ? (item.origin ?? item.rightOrigin) : null;
+      current = next ? idKey(next) : undefined;
+    }
+
+    for (const step of path) parents.set(step, found);
+
+    return found;
+  }
+
+  const depths = new Map<string, number>();
+  for (const key of items.keys()) {
+    const path: string[] = [];
+    let current: string | null = key;
+    let depth = 0;
+    while (current !== null && items.has(current)) {
+      const known = depths.get(current);
+      if (known !== undefined) {
+        depth = known;
+        break;
+      }
+
+      path.push(current);
+      // Too deep already. This also ends a loop that a hand-made update can build, where two
+      // items are each other's parent.
+      if (path.length > MAX_NESTING) return true;
+
+      current = parentOf(current);
+    }
+
+    for (let index = path.length - 1; index >= 0; index -= 1) {
+      depth += 1;
+      depths.set(path[index]!, depth);
+    }
+
+    if (depth > MAX_NESTING) return true;
+  }
+
+  return false;
+}
 
 function see(event: Y.YEvent<any>): Seen {
   return {
@@ -39,14 +127,20 @@ function see(event: Y.YEvent<any>): Seen {
   };
 }
 
-/** What a nested Yjs type in the doc holds. */
-type Slot = RootSlot | { readonly kind: 'rich' };
+/**
+ * What a nested Yjs type in the doc holds. `unread` is content under a key the schema does
+ * not have, such as a field removed from the doc type that old items still hold: the doc
+ * keeps it and never reads it, so undo and restore can bring it back.
+ */
+type Slot = RootSlot | { readonly kind: 'rich' } | { readonly kind: 'unread' };
 
 /** The slot one step down from `slot`, by `key`. */
 function child(slot: Slot, key: string | number): Slot {
   if (slot.kind === 'items') return { kind: 'field', field: slot.list.item };
 
-  if (slot.kind === 'rich') return slot;
+  if (slot.kind === 'rich' || slot.kind === 'unread') return slot;
+
+  if (slot.kind === 'values' && !Object.hasOwn(slot.shape, key)) return { kind: 'unread' };
 
   if (slot.kind !== 'field') throw new Error('this part holds no nested types');
 
@@ -66,10 +160,10 @@ function child(slot: Slot, key: string | number): Slot {
       return { kind: 'field', field: (field as RecordField).item };
 
     case 'shape': {
-      const sub = (field as Shape)[key as string];
-      if (!sub) throw new Error(`no field '${key}'`);
-
-      return { kind: 'field', field: sub };
+      // Own keys only: `__proto__` or `toString` is a key like any other, not a field.
+      return Object.hasOwn(field as Shape, key)
+        ? { kind: 'field', field: (field as Shape)[key as string]! }
+        : { kind: 'unread' };
     }
 
     default:
@@ -83,8 +177,11 @@ function checkEvent(snapshots: Snapshots, slot: Slot, event: Seen): string | nul
   switch (slot.kind) {
     case 'values':
       for (const key of event.keys) {
-        const field = slot.shape[key];
-        if (!field || kindOf(field) !== 'leaf') return `'${key}' is not a value of this object`;
+        // A key the schema does not have is kept unread (see `unread`).
+        if (!Object.hasOwn(slot.shape, key)) continue;
+
+        const field = slot.shape[key]!;
+        if (kindOf(field) !== 'leaf') return `'${key}' is not a value of this object`;
 
         snapshots.value(field as Leaf, map.get(key), key);
       }
@@ -118,6 +215,9 @@ function checkEvent(snapshots: Snapshots, slot: Slot, event: Seen): string | nul
 
     case 'field':
       return checkField(snapshots, slot.field, event);
+
+    case 'unread':
+      return null;
   }
 }
 
@@ -141,10 +241,14 @@ function checkField(snapshots: Snapshots, field: Field, event: Seen) {
 
     case 'shape':
       for (const key of event.keys) {
-        const sub = (field as Shape)[key];
-        if (!sub) return `'${key}' is not a field of this object`;
+        // A key the schema does not have is kept unread (see `unread`).
+        if (!Object.hasOwn(field as Shape, key)) continue;
 
-        if (!map.has(key)) return `'${key}' cannot be deleted`;
+        const sub = (field as Shape)[key]!;
+
+        // A deleted value reads as its default, as in an item stored before the field
+        // existed: undo and restore delete it that way. With no default, the read refuses it.
+        if (!map.has(key) && kindOf(sub) !== 'leaf') return `'${key}' cannot be deleted`;
 
         snapshots.field(sub, map.get(key), key);
       }
@@ -161,8 +265,8 @@ function checkField(snapshots: Snapshots, field: Field, event: Seen) {
 
 /** The result of applying a client's update on the server. */
 export type CheckResult =
-  /** The update is fine. Send it to the others. */
-  | { readonly ok: true; readonly update: Uint8Array }
+  /** The update is fine. Send it to the others, and store it; `null` when it changed nothing. */
+  | { readonly ok: true; readonly update: Uint8Array | null }
   /**
    * The update broke the schema, wrote outside the doc, or could not be applied whole. What the
    * server took of it was undone. Send `toOthers` (what the server took, with the undo) to the
@@ -207,6 +311,11 @@ export function applyChecked<D extends DocDef>(
   // inside someone else's update.
   if (outOfOrder || missesItems(decoded, have)) {
     return { ok: false, reason: OUT_OF_ORDER, toOthers: null, toSender: null };
+  }
+
+  if (nestsTooDeep(decoded)) {
+    const reason = `Yjs types can nest at most ${MAX_NESTING} deep`;
+    return { ok: false, reason, toOthers: null, toSender: null };
   }
 
   const roots = [...core.roots.keys()];
@@ -260,7 +369,8 @@ export function applyChecked<D extends DocDef>(
   else reason = written.wrongKind ?? check(core, events);
   if (reason === null) {
     undo.destroy();
-    return { ok: true, update };
+    // Nothing new, as when a client that is in step joins and sends its whole delete set.
+    return { ok: true, update: applied ? update : null };
   }
 
   const cleanup = {};
@@ -358,11 +468,16 @@ interface Written {
   wrongKind: string | null;
 }
 
-function rootOf(type: Y.AbstractType<any>): Y.AbstractType<any> {
-  let root = type;
-  while (root._item) root = root._item.parent as Y.AbstractType<any>;
+/** How many rich text nodes hold `type`, itself included. */
+function richDepth(type: Y.AbstractType<any>): number {
+  let depth = 0;
+  let node: Y.AbstractType<any> | null = type;
+  while (node instanceof Y.XmlElement || node instanceof Y.XmlText) {
+    depth += 1;
+    node = (node._item?.parent as Y.AbstractType<any> | undefined) ?? null;
+  }
 
-  return root;
+  return depth;
 }
 
 /**
@@ -381,12 +496,22 @@ function itemKindProblem(item: Y.Item, parent: Y.AbstractType<any>): string | nu
         return 'rich text keeps attributes only on its elements';
       }
 
+      if (!(item.content instanceof Y.ContentAny)) return 'an attribute holds only a plain value';
+
       return markBytes(item.parentSub!, item.content.getContent()[0]) <= MAX_FORMAT_BYTES
         ? null
         : `an attribute can be at most ${MAX_FORMAT_BYTES} bytes`;
     }
 
     const { content } = item;
+    // An element counts toward the depth; the text at the bottom of the elements does not.
+    if (
+      content instanceof Y.ContentType &&
+      richDepth(parent) + (content.type instanceof Y.XmlElement ? 1 : 0) > MAX_RICH_DEPTH
+    ) {
+      return `rich text can be at most ${MAX_RICH_DEPTH} elements deep`;
+    }
+
     return content instanceof Y.ContentFormat &&
       markBytes(content.key, content.value) > MAX_FORMAT_BYTES
       ? `a format mark can be at most ${MAX_FORMAT_BYTES} bytes`
@@ -415,10 +540,10 @@ function itemKindProblem(item: Y.Item, parent: Y.AbstractType<any>): string | nu
 }
 
 /**
- * A key of a nested map the schema does not have, such as an extra field on a new list item
- * or record entry. A new nested map fires no event of its own, so the event checks miss it.
+ * A key a nested map can't have, such as a third part in a nested list's map. A new nested
+ * map fires no event of its own, so the event checks miss it.
  */
-function unknownField<D extends DocDef>(
+function misplacedKey<D extends DocDef>(
   core: DocCore<D>,
   item: Y.Item,
   parent: Y.AbstractType<any>,
@@ -445,19 +570,20 @@ function unknownField<D extends DocDef>(
 
   if (!slot || slot.kind !== 'field') return null;
 
-  // A nested list keeps two parts in its map: its order and its items.
+  // A nested list keeps two parts in its map: its order and its items. An object's key the
+  // schema does not have is kept unread (see `unread`).
   if (kindOf(slot.field) === 'list') {
     return key === 'order' || key === 'items' ? null : `a list has no '${key}'`;
   }
 
-  if (kindOf(slot.field) !== 'shape') return null;
-
-  return Object.hasOwn(slot.field, key) ? null : `'${key}' is not a field of this object`;
+  return null;
 }
 
 /** The bytes an attribute or a format mark takes: its name and its value as JSON. */
+const utf8 = new TextEncoder();
+
 function markBytes(key: string, value: unknown): number {
-  return key.length + JSON.stringify(value ?? null).length;
+  return utf8.encode(key + JSON.stringify(value ?? null)).length;
 }
 
 /** Look at every item `transaction` added: what it costs is the size of the update. */
@@ -476,9 +602,22 @@ function inspectNewItems<D extends DocDef>(
       if (!(item instanceof Y.Item) || item.deleted) continue;
 
       const parent = item.parent as Y.AbstractType<any>;
-      const root = rootOf(parent);
-      if (!core.roots.has(root)) written.outside.add(root);
-      else written.wrongKind ??= itemKindProblem(item, parent) ?? unknownField(core, item, parent);
+      let root = parent;
+      let depth = 0;
+      while (root._item) {
+        root = root._item.parent as Y.AbstractType<any>;
+        depth += 1;
+      }
+
+      if (!core.roots.has(root)) {
+        written.outside.add(root);
+      }
+      // Many updates that each nest a little could still build a deep chain: count from the root.
+      else if (item.content instanceof Y.ContentType && depth >= MAX_NESTING) {
+        written.wrongKind ??= `Yjs types can nest at most ${MAX_NESTING} deep`;
+      } else {
+        written.wrongKind ??= itemKindProblem(item, parent) ?? misplacedKey(core, item, parent);
+      }
     }
   }
 }

@@ -4,7 +4,7 @@ import { open, task, taskBoard } from '~/test/task-board.ts';
 import { bench, describe } from 'vitest';
 import * as Y from 'yjs';
 
-// What the doc engine costs on a big board: 5,000 tasks, about 1.2 MiB.
+// What the doc core costs on a big board: 5,000 tasks, about 1.2 MiB.
 const ROUNDS = 400;
 const client = open(taskBoard);
 client.change((d) => {

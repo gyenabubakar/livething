@@ -3,8 +3,8 @@ import 'fake-indexeddb/auto';
 import { indexedDbStorage } from '~/client/indexeddb.ts';
 import { collaboration } from '~/client/plugin.ts';
 import { huddleClient, until } from '~/test/client.ts';
-import { startServer } from '~/test/engine.ts';
 import { memoryNetwork } from '~/test/network.ts';
+import { startServer } from '~/test/server.ts';
 import { task, taskBoard } from '~/test/task-board.ts';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
@@ -45,7 +45,7 @@ function deviceStorage(): CollaborationStorage {
 
 /** A text input as a browser gives it, enough for `bindText`. */
 function fakeInput() {
-  let listener: (() => void) | null = null;
+  const listeners = new Map<string, () => void>();
   const input = {
     value: '',
     selectionStart: 0 as number | null,
@@ -54,16 +54,19 @@ function fakeInput() {
       input.selectionStart = start;
       input.selectionEnd = end;
     },
-    addEventListener(_type: 'input', next: () => void) {
-      listener = next;
+    addEventListener(type: string, next: () => void) {
+      listeners.set(type, next);
     },
-    removeEventListener() {
-      listener = null;
+    removeEventListener(type: string) {
+      listeners.delete(type);
     },
     type(value: string, cursor = value.length) {
       input.value = value;
       input.setSelectionRange(cursor, cursor);
-      listener?.();
+      listeners.get('input')?.();
+    },
+    fire(type: 'compositionstart' | 'compositionend') {
+      listeners.get(type)?.();
     },
   };
 
@@ -391,6 +394,27 @@ describe('collaboration() on the client', () => {
       expect(guest.state.get().title).toBe('Launch');
     });
 
+    it("throws read-only from undo() and redo() once access became 'view'", async () => {
+      let role: 'edit' | 'view' = 'edit';
+      const server = await startServer({ access: () => role });
+      const network = memoryNetwork(server.engine);
+      const board = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      await board.open();
+
+      board.change((d) => {
+        d.title = 'Mine';
+      });
+
+      role = 'view';
+      network.goOffline();
+      network.goOnline();
+      await until(() => board.access.get() === 'view');
+
+      expect(() => board.history.undo()).toThrow(expect.objectContaining({ code: 'read-only' }));
+      expect(() => board.history.redo()).toThrow(expect.objectContaining({ code: 'read-only' }));
+      expect(board.state.get().title).toBe('Mine');
+    });
+
     it('undoes only its own change, and the undo reaches the others', async () => {
       const { network } = await huddle();
       const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
@@ -522,6 +546,245 @@ describe('collaboration() on the client', () => {
     });
   });
 
+  it("keeps a failed open() counted, so its close() does not close a later caller's open()", async () => {
+    let allowed = false;
+    const server = await startServer({ access: () => (allowed ? 'edit' : false) });
+    const board = huddleClient(memoryNetwork(server.engine), 'u_amara').collab.doc(
+      'task-board',
+      'launch',
+    );
+
+    await expect(board.open()).rejects.toMatchObject({ code: 'access-denied' });
+    allowed = true;
+    await board.open();
+    board.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(board.status.get()).toBe('synced');
+  });
+
+  it('joins an open doc again after socket.disconnect() and connect()', async () => {
+    const { network, api } = await huddle();
+    const { socket, collab } = huddleClient(network, 'u_amara');
+    const board = collab.doc('task-board', 'launch');
+    await board.open();
+
+    socket.disconnect();
+    await until(() => board.status.get() === 'offline');
+    board.change((d) => {
+      d.title = 'Written while disconnected';
+    });
+    socket.connect();
+
+    await until(() => board.status.get() === 'synced');
+    expect((await api().doc('task-board', 'launch').read()).title).toBe(
+      'Written while disconnected',
+    );
+  });
+
+  it('closes the doc when access refuses it on a rejoin, and a later open() tries again', async () => {
+    let allowed = true;
+    const server = await startServer({ access: () => (allowed ? 'edit' : false) });
+    const network = memoryNetwork(server.engine);
+    const errors: unknown[] = [];
+    const board = huddleClient(network, 'u_amara', {
+      onError: (error) => errors.push(error),
+    }).collab.doc('task-board', 'launch');
+
+    await board.open();
+
+    allowed = false;
+    network.goOffline();
+    network.goOnline();
+    await until(() => board.status.get() === 'closed');
+
+    expect(errors).toMatchObject([
+      { message: expect.stringMatching(/server removed this client/) },
+    ]);
+    allowed = true;
+    board.close();
+    await board.open();
+    expect(board.status.get()).toBe('synced');
+
+    board.close();
+    await until(() => board.status.get() === 'closed');
+  });
+
+  it('joins again when the network drops while it rejoins after disconnect() and connect()', async () => {
+    let hold: Promise<void> | null = null;
+    let release!: () => void;
+    const server = await startServer({
+      async access() {
+        await hold;
+        return 'edit' as const;
+      },
+    });
+    const network = memoryNetwork(server.engine);
+    const errors: unknown[] = [];
+
+    const { socket, collab } = huddleClient(network, 'u_amara', {
+      onError: (error) => errors.push(error),
+    });
+    const board = collab.doc('task-board', 'launch');
+    await board.open();
+
+    socket.disconnect();
+    hold = new Promise((resolve) => {
+      release = resolve;
+    });
+    socket.connect();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    network.goOffline();
+
+    release();
+    hold = null;
+    network.goOnline();
+
+    await until(() => board.status.get() === 'synced');
+    expect(errors).toEqual([]);
+  });
+
+  it('reports one error when access refuses a rejoin after disconnect() and connect()', async () => {
+    let allowed = true;
+    const server = await startServer({ access: () => (allowed ? 'edit' : false) });
+    const errors: unknown[] = [];
+    const { socket, collab } = huddleClient(memoryNetwork(server.engine), 'u_amara', {
+      onError: (error) => errors.push(error),
+    });
+    const board = collab.doc('task-board', 'launch');
+
+    await board.open();
+
+    socket.disconnect();
+    allowed = false;
+    socket.connect();
+    await until(() => board.status.get() === 'closed');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(errors).toMatchObject([
+      { message: expect.stringMatching(/server removed this client/) },
+    ]);
+  });
+
+  it('closes a doc the app already closed without an error when the server removes it', async () => {
+    let allowed = true;
+    const server = await startServer({ access: () => (allowed ? 'edit' : false) });
+    const network = memoryNetwork(server.engine);
+    const errors: unknown[] = [];
+    const board = huddleClient(network, 'u_amara', {
+      closeDelayMs: 60_000,
+      onError: (error) => errors.push(error),
+    }).collab.doc('task-board', 'launch');
+
+    await board.open();
+    board.close();
+
+    allowed = false;
+    network.goOffline();
+    network.goOnline();
+    await until(() => board.status.get() === 'closed');
+
+    expect(errors).toEqual([]);
+  });
+
+  it('reports an onError that throws as uncaught, and keeps the change', async () => {
+    const { network } = await huddle();
+    const uncaught: unknown[] = [];
+    const original = globalThis.queueMicrotask;
+    globalThis.queueMicrotask = (run) =>
+      original(() => {
+        try {
+          run();
+        } catch (error) {
+          uncaught.push(error);
+        }
+      });
+    try {
+      const board = huddleClient(network, 'u_amara', {
+        binary: { maxFrameBytes: 100_000 },
+        onError() {
+          throw new Error('toast is not mounted');
+        },
+      }).collab.doc('task-board', 'launch');
+      await board.open();
+
+      board.change((d) => {
+        d.title = 'x'.repeat(300_000);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(board.state.get().title).toHaveLength(300_000);
+      expect(uncaught).toMatchObject([{ message: 'toast is not mounted' }]);
+    } finally {
+      globalThis.queueMicrotask = original;
+    }
+  });
+
+  it('stores nothing when a client that is in step joins again', async () => {
+    const appends: Uint8Array[] = [];
+    const server = await startServer({
+      storage: {
+        load: () => [...appends],
+        append: (_doc, update) => void appends.push(update),
+        compact() {},
+        saveVersion() {},
+        listVersions: () => [],
+        readVersion: () => null,
+        deleteVersion: () => false,
+      },
+    });
+    const board = huddleClient(memoryNetwork(server.engine), 'u_amara').collab.doc(
+      'task-board',
+      'launch',
+    );
+    await board.open();
+    board.change((d) => {
+      d.title = 'Launch plan';
+    });
+
+    board.change((d) => {
+      d.title = 'Launch';
+    });
+    await until(() => board.status.get() === 'synced');
+    const before = appends.length;
+
+    board.close();
+    await until(() => board.status.get() === 'closed');
+    await board.open();
+    await until(() => board.status.get() === 'synced');
+
+    expect(appends.length).toBe(before);
+  });
+
+  describe('a change the client cannot send', () => {
+    it.each([
+      ['the socket drops a part', { maxFrameBytes: 100_000 }, 300_000],
+      ['the update is over 32 MiB', {}, 33 * 1024 * 1024],
+    ])(
+      'goes to onError when %s, and the doc does not stay saving',
+      async (_, frames, size) => {
+        const { network } = await huddle();
+        const errors: unknown[] = [];
+        const board = huddleClient(network, 'u_amara', {
+          onError: (e) => errors.push(e),
+          binary: frames,
+        }).collab.doc('task-board', 'launch');
+        await board.open();
+
+        board.change((d) => {
+          d.title = 'x'.repeat(size);
+        });
+
+        expect(errors).toMatchObject([
+          { code: 'update-not-sent', detail: { type: 'task-board', id: 'launch' } },
+        ]);
+        expect(board.status.get()).toBe('synced');
+        await board.versions.list();
+      },
+      20_000,
+    );
+  });
+
   describe('offline', () => {
     it('keeps changes made offline and sends them when the network is back', async () => {
       const { network, api } = await huddle();
@@ -622,6 +885,73 @@ describe('collaboration() on the client', () => {
 
       await until(() => after.status.get() === 'synced');
       expect((await api().doc('task-board', 'launch').read()).title).toBe('Written offline');
+    });
+
+    it('calls the device storage one at a time, even when open() comes during an append', async () => {
+      const { network } = await huddle();
+      const kept = deviceStorage();
+      const calls: string[] = [];
+      let running = 0;
+      async function slow(name: string): Promise<void> {
+        running += 1;
+        calls.push(`${name}:${running}`);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        running -= 1;
+      }
+
+      const storage: CollaborationStorage = {
+        async load(doc) {
+          await slow('load');
+          return kept.load(doc);
+        },
+        async append(doc, update) {
+          await slow('append');
+          await kept.append(doc, update);
+        },
+        async compact(doc, state) {
+          await slow('compact');
+          await kept.compact(doc, state);
+        },
+      };
+
+      const board = huddleClient(network, 'u_amara', { storage }).collab.doc(
+        'task-board',
+        'launch',
+      );
+
+      board.change((d) => {
+        d.title = 'Written before open';
+      });
+      await board.open();
+
+      expect(calls.slice(0, 2)).toEqual(['append:1', 'load:1']);
+      expect(calls.every((call) => call.endsWith(':1'))).toBe(true);
+    });
+
+    it('does not refuse a viewer for an edit another member made while it synced', async () => {
+      const server = await startServer({
+        access: (ctx) => (ctx.user.id === 'u_guest' ? 'view' : 'edit'),
+      });
+      const network = memoryNetwork(server.engine);
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      await amara.open();
+
+      // The edit lands at a different point of the guest's sync each time.
+      for (let hops = 0; hops < 40; hops += 1) {
+        const guest = huddleClient(network, 'u_guest').collab.doc('task-board', 'launch');
+        const refusals: string[] = [];
+        guest.onRefused((refusal) => refusals.push(refusal.reason));
+        const opening = guest.open();
+        for (let hop = 0; hop < hops; hop += 1) await Promise.resolve();
+
+        amara.change((d) => {
+          d.title = `Edit ${hops}`;
+        });
+        await opening;
+        await until(() => guest.state.get().title === `Edit ${hops}`);
+
+        expect(refusals).toEqual([]);
+      }
     });
 
     it('tells onRefused when a viewer loads edits from the device that the server never got', async () => {
@@ -725,10 +1055,36 @@ describe('collaboration() on the client', () => {
       await until(() =>
         [...kofi.awareness.others.get().values()].some((m) => m.state?.viewingTaskId === 't9'),
       );
-      expect(kofi.locks.get().get('task:t1')?.meta).toMatchObject({});
+      expect(kofi.locks.get().get('task:t1')?.connectionId).toBe(
+        kofi.awareness.self.get()?.connectionId,
+      );
       expect(amara.locks.get().get('task:t1')?.connectionId).not.toBe(
         amara.awareness.self.get()?.connectionId,
       );
+    });
+
+    it('does not show its old lock on the new connection after a reconnect, not even briefly', async () => {
+      const { engine } = await huddle();
+      const amaraNetwork = memoryNetwork(engine);
+      const amara = huddleClient(amaraNetwork, 'u_amara').collab.doc('task-board', 'launch');
+      const kofi = huddleClient(memoryNetwork(engine), 'u_kofi').collab.doc('task-board', 'launch');
+      await amara.open();
+
+      await kofi.open();
+      expect(await amara.lock('task:t1')).toBe(true);
+
+      amaraNetwork.goOffline();
+      await until(() => !kofi.locks.get().has('task:t1'));
+      const seen: string[] = [];
+      kofi.locks.subscribe((locks) => {
+        if (locks.has('task:t1')) seen.push(locks.get('task:t1')!.connectionId);
+      });
+      amaraNetwork.goOnline();
+
+      await until(() => amara.status.get() === 'synced');
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(seen).toEqual([]);
     });
 
     it('resolves lock() false at once while the socket is down, not after the reconnect', async () => {
@@ -867,13 +1223,124 @@ describe('collaboration() on the client', () => {
 
       expect(input.value).toBe('The Launch');
     });
+
+    it('leaves the input alone while an IME composes, and merges both edits at the end', async () => {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      const kofi = huddleClient(network, 'u_kofi').collab.doc('task-board', 'launch');
+      await amara.open();
+      await kofi.open();
+
+      const input = fakeInput();
+      amara.bindText(input, (p) => p.title);
+
+      input.fire('compositionstart');
+      input.type('Launch に', 8);
+      kofi.change((d) => {
+        d.title = 'Big Launch';
+      });
+      await until(() => amara.state.get().title === 'Big Launch');
+
+      expect(input.value).toBe('Launch に');
+      input.type('Launch 日本', 9);
+      input.fire('compositionend');
+
+      expect(input.value).toBe('Big Launch 日本');
+      await until(() => kofi.state.get().title === 'Big Launch 日本');
+    });
+
+    it('keeps the cursor on its character when a composition is cancelled during a remote edit', async () => {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      const kofi = huddleClient(network, 'u_kofi').collab.doc('task-board', 'launch');
+      await amara.open();
+      await kofi.open();
+
+      const input = fakeInput();
+      amara.bindText(input, (p) => p.title);
+      input.setSelectionRange(2, 2);
+
+      input.fire('compositionstart');
+      kofi.change((d) => {
+        d.title = `Big ${d.title}`;
+      });
+      await until(() => amara.state.get().title === 'Big Launch');
+      input.fire('compositionend');
+
+      expect(input.value).toBe('Big Launch');
+      expect([input.selectionStart, input.selectionEnd]).toEqual([6, 6]);
+    });
+
+    it('stores half of an emoji typed or pasted as U+FFFD, and keeps the input and every copy in step', async () => {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      const kofi = huddleClient(network, 'u_kofi').collab.doc('task-board', 'launch');
+      await amara.open();
+      await kofi.open();
+
+      const input = fakeInput();
+      amara.bindText(input, (p) => p.title);
+
+      input.type('Launch \ud83d');
+      input.type('Launch \ud83d plan');
+
+      expect(input.value).toBe('Launch � plan');
+      expect(amara.state.get().title).toBe('Launch � plan');
+      await until(() => kofi.state.get().title === 'Launch � plan');
+    });
+
+    it('swaps one emoji for another in a composition without splitting the pair', async () => {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      const kofi = huddleClient(network, 'u_kofi').collab.doc('task-board', 'launch');
+      await amara.open();
+      await kofi.open();
+
+      const input = fakeInput();
+      amara.bindText(input, (p) => p.title);
+      input.type('Launch 😀');
+      await until(() => kofi.state.get().title === 'Launch 😀');
+
+      input.fire('compositionstart');
+      input.type('Launch 😁');
+      input.fire('compositionend');
+
+      expect(amara.state.get().title).toBe('Launch 😁');
+      await until(() => kofi.state.get().title === 'Launch 😁');
+    });
+
+    it('keeps the first composition when a second one starts before it ends', async () => {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      await amara.open();
+      const input = fakeInput();
+      amara.bindText(input, (p) => p.title);
+
+      input.fire('compositionstart');
+      input.type('LaunchX');
+      input.fire('compositionstart');
+      input.type('LaunchXY');
+      input.fire('compositionend');
+
+      expect(amara.state.get().title).toBe('LaunchXY');
+    });
   });
 
   describe('setup', () => {
     it('refuses a doc type listed twice, no doc types, and a bad closeDelayMs', () => {
       expect(() => collaboration({ docs: [taskBoard, taskBoard] })).toThrow(/listed twice/);
       expect(() => collaboration({ docs: [] })).toThrow(/at least one/);
-      expect(() => collaboration({ docs: [taskBoard], closeDelayMs: 1.5 })).toThrow(/closeDelayMs/);
+      for (const closeDelayMs of [-1, 1.5, 2 ** 31]) {
+        expect(() => collaboration({ docs: [taskBoard], closeDelayMs })).toThrow(/closeDelayMs/);
+      }
+    });
+
+    it('refuses a doc ID with half of an emoji, which the wire and SQL would merge with others', async () => {
+      const { network } = await huddle();
+      const { collab } = huddleClient(network, 'u_amara');
+
+      expect(() => collab.doc('task-board', 'room-\ud800')).toThrow(/half of an emoji/);
+      expect(() => collab.doc('task-board', 'room-😀')).not.toThrow();
     });
   });
 });
@@ -941,7 +1408,10 @@ describe('indexedDbStorage()', () => {
     before.change((d) => {
       d.title = 'Kept on the device';
     });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    const launch = { type: 'task-board', id: 'launch' };
+    await until(
+      async () => (await storedTitle(indexedDbStorage({ name }), launch)) === 'Kept on the device',
+    );
 
     const second = huddleClient(network, 'u_amara', { storage: indexedDbStorage({ name }) });
     const after = second.collab.doc('task-board', 'launch');

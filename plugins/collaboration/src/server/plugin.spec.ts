@@ -1,7 +1,9 @@
 import { decodeBase64, encodeBinaryFrame } from '@livething/core';
+import { OUT_OF_ORDER } from '~/doc/wire.ts';
 import { collaboration } from '~/server/plugin.ts';
 import { sqlStorage } from '~/server/storage.ts';
-import { connect, settle, startServer, testSql } from '~/test/engine.ts';
+import { until } from '~/test/client.ts';
+import { connect, settle, startServer, testSql } from '~/test/server.ts';
 import { open, task, taskBoard } from '~/test/task-board.ts';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
@@ -374,6 +376,25 @@ describe('collaboration() on the server', () => {
       expect(open(taskBoard, reloaded).state.get().title).toBe('Hello world');
     });
 
+    it('stores a doc whose ID holds a line break, and logs nothing', async () => {
+      const sql = testSql();
+      const first = await startServer({ sql });
+      await first
+        .api()
+        .doc('task-board', 'notes\nfrom standup')
+        .change((d) => {
+          d.title = 'Standup';
+        });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      const second = await startServer({ sql });
+
+      expect((await second.api().doc('task-board', 'notes\nfrom standup').read()).title).toBe(
+        'Standup',
+      );
+      expect(first.logged).toEqual([]);
+    });
+
     it('keeps a doc in the server SQL, so a new server loads it, and adds a metadata column', async () => {
       const sql = testSql();
       const first = await startServer({ sql });
@@ -425,6 +446,39 @@ describe('collaboration() on the server', () => {
       const reloaded = new Y.Doc();
       Y.applyUpdate(reloaded, docs.get('task-board:launch')![0]!);
       expect(open(taskBoard, reloaded).state.get().title).toBe('v199');
+    });
+
+    it('appends small edits to a doc bigger than 4 MiB, before and after it reloads', async () => {
+      const { storage, docs, calls } = memoryStorage();
+      const big = 'x'.repeat(5 * 1024 * 1024);
+      const first = await startServer({ storage });
+      await first
+        .api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = big;
+        });
+      await first
+        .api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.archived = true;
+        });
+
+      docs.set('task-board:launch', [Y.mergeUpdates(docs.get('task-board:launch')!)]);
+      calls.length = 0;
+
+      const second = await startServer({ storage });
+      for (const archived of [false, true, false]) {
+        await second
+          .api()
+          .doc('task-board', 'launch')
+          .change((d) => {
+            d.archived = archived;
+          });
+      }
+
+      expect(calls.filter((call) => call !== 'append' && !call.startsWith('load'))).toEqual([]);
     });
 
     it('unloads a doc when its last member leaves, and loads it again on the next open', async () => {
@@ -530,6 +584,50 @@ describe('collaboration() on the server', () => {
       );
     });
 
+    it('waits for the delay after server changes to a doc with no members', async () => {
+      const onSave = vi.fn();
+      const { api } = await startServer({ onSave, saveDelayMs: 200 });
+      const launch = api().doc('task-board', 'launch');
+
+      for (const title of ['a', 'b', 'c']) {
+        await launch.change((d) => {
+          d.title = title;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      expect(onSave).not.toHaveBeenCalled();
+
+      await until(() => onSave.mock.calls.length > 0, 1000);
+      expect(onSave).toHaveBeenCalledTimes(1);
+      expect(onSave.mock.calls[0]![1].state.title).toBe('c');
+    });
+
+    it('waits the full delay for a change made while a slow onSave runs', async () => {
+      const saved: string[] = [];
+      const { api } = await startServer({
+        saveDelayMs: 300,
+        async onSave(_ctx, event) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          saved.push(event.state.title);
+        },
+      });
+      const launch = api().doc('task-board', 'launch');
+
+      await launch.change((d) => {
+        d.title = 'a';
+      });
+      await new Promise((resolve) => setTimeout(resolve, 320));
+      await launch.change((d) => {
+        d.title = 'b';
+      });
+      await new Promise((resolve) => setTimeout(resolve, 240));
+      expect(saved).toEqual(['a']);
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(saved).toEqual(['a', 'b']);
+    });
+
     it('runs at once when the last member leaves before the delay', async () => {
       const onSave = vi.fn();
       const { engine } = await startServer({ onSave, saveDelayMs: 60_000 });
@@ -541,6 +639,102 @@ describe('collaboration() on the server', () => {
       await settle();
 
       expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs at once when the last member leaves while its last edit is still being stored', async () => {
+      const onSave = vi.fn();
+      const { storage } = memoryStorage();
+      const { engine } = await startServer({
+        onSave,
+        saveDelayMs: 60_000,
+        storage: {
+          ...storage,
+          async append(doc, update) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            await storage.append(doc, update);
+          },
+        },
+      });
+      const amara = await member(engine, 'u_amara');
+
+      const editing = amara.edit(1, (ydoc) => ydoc.getText('title').insert(0, 'Hi'));
+      await amara.leave('launch');
+      await editing;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs before the server finishes shutting down', async () => {
+      const calls: string[] = [];
+      const { engine, api } = await startServer({
+        saveDelayMs: 5000,
+        async onSave() {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          calls.push('onSave');
+        },
+      });
+      await member(engine, 'u_amara');
+      await api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = 'Launch';
+        });
+
+      await engine.handleShutdown();
+      calls.push('shut down');
+
+      expect(calls).toEqual(['onSave', 'shut down']);
+    });
+
+    it('waits for an onSave already running when the server shuts down', async () => {
+      const calls: string[] = [];
+      const { engine, api } = await startServer({
+        saveDelayMs: 10,
+        async onSave() {
+          calls.push('onSave start');
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          calls.push('onSave end');
+        },
+      });
+      await member(engine, 'u_amara');
+      await api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = 'Launch';
+        });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      await engine.handleShutdown();
+      calls.push('shut down');
+
+      expect(calls).toEqual(['onSave start', 'onSave end', 'shut down']);
+    });
+
+    it('stops waiting for storage that never answers, and logs it, so shutdown ends', async () => {
+      const { storage } = memoryStorage();
+      const { engine, api, logged } = await startServer({
+        onSave() {},
+        storage: { ...storage, append: () => new Promise<void>(() => {}) },
+      });
+      await member(engine, 'u_amara');
+      void api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = 'Launch';
+        });
+      await settle();
+
+      vi.useFakeTimers({ toFake: ['setTimeout'] });
+      try {
+        const shutdown = engine.handleShutdown();
+        await vi.advanceTimersByTimeAsync(10_000);
+        await shutdown;
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(JSON.stringify(logged)).toContain('the server stopped before every doc was stored');
     });
 
     it('logs an onSave that throws', async () => {
@@ -693,6 +887,15 @@ describe('collaboration() on the server', () => {
     });
   });
 
+  it('refuses a doc ID or a version label with half of an emoji, from server code', async () => {
+    const { api } = await startServer();
+
+    expect(() => api().doc('task-board', 'room-\ud800')).toThrow(/half of an emoji/);
+    await expect(api().doc('task-board', 'launch').versions.save('Plan \ud800')).rejects.toThrow(
+      /half of an emoji/,
+    );
+  });
+
   describe('versions', () => {
     /** The version bytes the server sent as `version` parts for read `n`, as a Y.Doc. */
     function versionSent(
@@ -838,6 +1041,26 @@ describe('collaboration() on the server', () => {
       ).toEqual([fourth.id, third.id, other.id].sort());
     });
 
+    it('still gives the saved version when deleting old versions fails, and logs it', async () => {
+      const { storage } = memoryStorage();
+      const { api, logged } = await startServer({
+        maxVersions: 1,
+        storage: {
+          ...storage,
+          deleteVersion() {
+            throw new Error('database locked');
+          },
+        },
+      });
+      const launch = api().doc('task-board', 'launch');
+      await launch.versions.save('First');
+
+      const second = await launch.versions.save('Second');
+
+      expect(second.label).toBe('Second');
+      expect(JSON.stringify(logged)).toContain('database locked');
+    });
+
     it('lets an editor save a version as its author, and a viewer list and read them', async () => {
       const { engine, api } = await startServer();
       await api()
@@ -957,10 +1180,36 @@ describe('collaboration() on the server', () => {
 
       expect(() => collaboration({ docs: [taskBoard, taskBoard], access })).toThrow(/listed twice/);
       expect(() => collaboration({ docs: [], access })).toThrow(/at least one/);
-      expect(() => collaboration({ docs: [taskBoard], access, saveDelayMs: -1 })).toThrow(
-        /saveDelayMs/,
-      );
+      for (const saveDelayMs of [-1, 1.5, 2 ** 31]) {
+        expect(() => collaboration({ docs: [taskBoard], access, saveDelayMs })).toThrow(
+          /saveDelayMs/,
+        );
+      }
     });
+  });
+
+  it('tells a client to sync again when the doc could not load for its update', async () => {
+    const { storage } = memoryStorage();
+    let failures = 1;
+    const { engine } = await startServer({
+      storage: {
+        ...storage,
+        load(doc) {
+          if (failures-- > 0) throw new Error('database waking up');
+
+          return storage.load(doc);
+        },
+      },
+    });
+    const amara = await connect(engine, 'u_amara');
+    await amara.open('launch');
+
+    const board = open(taskBoard);
+    board.ydoc.getText('title').insert(0, 'Launch');
+
+    await amara.update('launch', { n: 1 }, Y.encodeStateAsUpdate(board.ydoc)).catch(() => {});
+
+    expect(amara.of('refused').at(-1)?.info).toEqual({ n: 1, reason: OUT_OF_ORDER });
   });
 
   describe('hibernation', () => {

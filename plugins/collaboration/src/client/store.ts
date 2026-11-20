@@ -63,9 +63,10 @@ export function derive<S, T>(source: ReadableStore<S>, select: (value: S) => T):
   let lastOutput: T;
   function read() {
     const input = source.get();
+    // The input is kept only once `select` returned, so a selector that threw runs again.
     if (input !== lastInput) {
-      lastInput = input;
       lastOutput = select(input);
+      lastInput = input;
     }
 
     return lastOutput;

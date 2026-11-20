@@ -1,5 +1,6 @@
 import { LiveThingConfigError } from '@livething/core';
 import { doc, list, record, richText, text } from '~/schema.ts';
+import { checkAwareness } from '~/server/awareness.ts';
 import { type } from 'arktype';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -130,6 +131,19 @@ describe('doc()', () => {
     expect(() => doc('notes', { body: text() }, { awareness: {} as never })).toThrow(
       /awareness.*Standard Schema/,
     );
+  });
+
+  it('says clearly, on the server, that an awareness schema checked asynchronously', () => {
+    const notes = doc(
+      'notes',
+      { body: text() },
+      { awareness: v.objectAsync({ viewingTaskId: v.nullable(v.string()) }) },
+    );
+    const state = { user: { viewingTaskId: null }, yjs: 1, editor: null, locks: [] };
+
+    expect(() =>
+      checkAwareness({ def: notes, canEdit: true, state, previous: null, others: [] }),
+    ).toThrow(/'notes' checked asynchronously/);
   });
 
   it('refuses a list or record item that is not a field', () => {

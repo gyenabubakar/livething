@@ -32,11 +32,13 @@ export function readValue(schema: Leaf, stored: unknown, path: string): unknown 
   if (!isStorable(stored, 0)) {
     throw invalidChange(
       path,
-      `a value must be JSON or bytes, at most ${MAX_DEPTH} levels deep: null, a boolean, a finite number, a string, a Uint8Array, an array or a plain object of these`,
+      `a value must be JSON or bytes, at most ${MAX_DEPTH} levels deep: null, a boolean, a finite number, a string with no half of an emoji alone, a Uint8Array, an array or a plain object of these`,
     );
   }
 
-  const result = schema['~standard'].validate(stored);
+  // A copy: the output may be the very object it was given, and a snapshot freezes and hands
+  // out its output, so the value Yjs holds must not be it. Bytes would stay writable.
+  const result = schema['~standard'].validate(copyValue(stored));
   if (result instanceof Promise) {
     result.catch(() => {});
     throw invalidChange(
@@ -50,10 +52,54 @@ export function readValue(schema: Leaf, stored: unknown, path: string): unknown 
   return result.value;
 }
 
-/** Check a value that is about to be written, and give what to store. */
+/**
+ * Check a value that is about to be written, and give what to store: a copy, because Yjs
+ * keeps the object it gets, and the caller may change theirs later.
+ */
 export function writeValue(schema: Leaf, input: unknown, path: string): unknown {
   readValue(schema, input, path);
-  return input;
+  return copyValue(input);
+}
+
+/** A deep copy of a value `isStorable` passed. Bytes are copied alone, not with the buffer they view. */
+function copyValue(value: unknown): unknown {
+  if (value instanceof Uint8Array) return value.slice();
+
+  if (Array.isArray(value)) return value.map(copyValue);
+
+  if (typeof value !== 'object' || value === null) return value;
+
+  const copy: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) copy[key] = copyValue(item);
+
+  return copy;
+}
+
+/** Half of an emoji or other pair, alone: UTF-8 can't hold it. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/**
+ * A string Yjs sends as it is. Yjs encodes strings as UTF-8, which turns a lone surrogate
+ * into U+FFFD, so the writer's copy would differ from every other copy for good.
+ */
+export function wellFormed(text: string): boolean {
+  return !LONE_SURROGATE.test(text);
+}
+
+/** `text` with each lone surrogate as U+FFFD, as every other copy would get it. */
+export function toWellFormed(text: string): string {
+  return text.replace(new RegExp(LONE_SURROGATE.source, 'g'), '�');
+}
+
+/** Check a string written as text, rich text or a record key, and give it back. */
+export function checkString(path: string, value: unknown, what: string): string {
+  if (typeof value !== 'string') throw invalidChange(path, `${what} must be a string`);
+
+  if (!wellFormed(value)) {
+    throw invalidChange(path, `${what} holds half of an emoji or other pair, alone`);
+  }
+
+  return value;
 }
 
 /** JSON or bytes, as a Yjs update can carry it. `undefined` stands for "no value". */
@@ -64,8 +110,10 @@ export function isStorable(value: unknown, depth: number): boolean {
 
   switch (typeof value) {
     case 'boolean':
-    case 'string':
       return true;
+
+    case 'string':
+      return wellFormed(value);
 
     case 'number':
       return Number.isFinite(value);
@@ -78,7 +126,14 @@ export function isStorable(value: unknown, depth: number): boolean {
 
       if (![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
 
-      return Object.values(value).every((item) => isStorable(item, depth + 1));
+      // A peer decoding `__proto__` sets a prototype, not a key, so the value would differ.
+      if (Object.hasOwn(value, '__proto__')) return false;
+
+      for (const [key, item] of Object.entries(value)) {
+        if (!wellFormed(key) || !isStorable(item, depth + 1)) return false;
+      }
+
+      return true;
 
     default:
       return false;
@@ -117,16 +172,33 @@ export interface TextRun {
 }
 
 /**
- * The plain text of rich text: each top-level block on its own line. `runs` lists every
- * text node with its start, so a range of the plain text maps to nodes and back.
+ * The plain text of rich text: each block (an element that holds text, at any depth) on its
+ * own line. `runs` lists every text node with its start, so a range of the plain text maps
+ * to nodes and back.
  */
 export function richTextLayout(fragment: Y.XmlFragment): { text: string; runs: TextRun[] } {
   const parts: string[] = [];
   const runs: TextRun[] = [];
   let length = 0;
+  let lines = 0;
 
-  function walk(node: Y.XmlElement | Y.XmlText): void {
+  function newLine(): void {
+    if (lines > 0) {
+      parts.push('\n');
+      length += 1;
+    }
+
+    lines += 1;
+  }
+
+  /**
+   * A block is an element that holds text, or none at all, outside another block's text: a
+   * paragraph or a heading, however deep an editor nests it (BlockNote, lists). Each one
+   * starts a line.
+   */
+  function walk(node: Y.XmlElement | Y.XmlText, inText: boolean): void {
     if (node instanceof Y.XmlText) {
+      if (!inText) newLine();
       runs.push({ node, start: length });
       const delta = node.toDelta() as { insert: unknown }[];
       for (const op of delta) {
@@ -138,17 +210,13 @@ export function richTextLayout(fragment: Y.XmlFragment): { text: string; runs: T
       return;
     }
 
-    for (const child of node.toArray()) walk(child as Y.XmlElement | Y.XmlText);
+    const children = node.toArray() as (Y.XmlElement | Y.XmlText)[];
+    const holdsText = children.some((child) => child instanceof Y.XmlText);
+    if (!inText && (holdsText || children.length === 0)) newLine();
+    for (const child of children) walk(child, inText || holdsText);
   }
 
-  fragment.toArray().forEach((block, index) => {
-    if (index > 0) {
-      parts.push('\n');
-      length += 1;
-    }
-
-    walk(block as Y.XmlElement | Y.XmlText);
-  });
+  for (const block of fragment.toArray()) walk(block as Y.XmlElement | Y.XmlText, false);
 
   return { text: parts.join(''), runs };
 }

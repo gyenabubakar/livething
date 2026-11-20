@@ -90,9 +90,13 @@ export function checkAwareness(input: AwarenessCheckInput): boolean {
   // `null` is a member that has set no app state yet.
   if (def.awareness && state.user !== null) {
     const result = def.awareness['~standard'].validate(state.user);
+    // A server bug, not a bad state: thrown, so LiveThing reports it, as it does any check that
+    // throws. Awareness is checked at once, so such a schema refuses every state.
     if (result instanceof Promise) {
       result.catch(() => {});
-      return false;
+      throw new Error(
+        `collaboration: the 'awareness' schema of doc type '${def.name}' checked asynchronously. Use a schema that checks at once.`,
+      );
     }
 
     if (result.issues) return false;

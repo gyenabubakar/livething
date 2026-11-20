@@ -5,8 +5,8 @@ import { createDocState } from '~/client/doc-state.ts';
 import { createStore } from '~/client/store.ts';
 import { DocCore } from '~/doc/core.ts';
 import { eachPart, joinBytes } from '~/doc/parts.ts';
-import { restoreFrom } from '~/doc/restore.ts';
-import { OUT_OF_ORDER } from '~/doc/wire.ts';
+import { checkVersion, restoreFrom } from '~/doc/restore.ts';
+import { MAX_UPDATE_BYTES, OUT_OF_ORDER } from '~/doc/wire.ts';
 import * as Y from 'yjs';
 import type { AwarenessRoom, DocAwareness, LockHolder } from '~/client/awareness.ts';
 import type { TextInput } from '~/client/bind-text.ts';
@@ -49,6 +49,16 @@ export interface Refusal {
 export interface ReadOnlyDetail {
   readonly type: string;
   readonly id: string;
+}
+
+/**
+ * The detail of the `update-not-sent` error that `onError` gets when the client can't send a
+ * change: which doc, and why.
+ */
+export interface UpdateNotSentDetail {
+  readonly type: string;
+  readonly id: string;
+  readonly reason: string;
 }
 
 /** The parts of a doc's LiveThing channel the handle uses. */
@@ -111,7 +121,8 @@ export interface DocVersions<D extends DocDef> {
    * every member gets it, and `history.undo()` takes it back. Text keeps its anchors on the
    * words that did not change, and list items that are still there keep their IDs.
    *
-   * @throws `read-only` for a `'view'` client, and `version-not-found` for an unknown ID.
+   * @throws `read-only` for a `'view'` client, `version-not-found` for an unknown ID, and
+   * `invalid-change` for a version the doc type's schema now refuses.
    */
   restore(id: string): Promise<void>;
   /**
@@ -134,7 +145,7 @@ type AwarenessState<D extends DocDef> =
  * One doc on the client: `collab.doc(type, id)`. `open()` joins it, `change()` edits it,
  * and the stores show its content, its members and where it is.
  */
-export interface DocHandle<D extends DocDef> extends Omit<DocState<D>, 'destroy' | 'yjs'> {
+export interface DocHandle<D extends DocDef> extends Omit<DocState<D>, 'yjs'> {
   /** The doc type's name, such as `'task-board'`. */
   readonly type: D['name'];
   /** The doc's ID within its type, such as `'launch'`. */
@@ -144,8 +155,8 @@ export interface DocHandle<D extends DocDef> extends Omit<DocState<D>, 'destroy'
    * room, and sync, where each side sends only what the other is missing. Resolves once
    * the doc is synced.
    *
-   * Counted: each `open()` needs a `close()`, and calls while it is open resolve with the
-   * same sync. Rejects with the server's error (such as `access-denied` when `access`
+   * Counted: each `open()` needs a `close()`, a failed one too, and calls while it is open
+   * resolve with the same sync. Rejects with the server's error (such as `access-denied` when `access`
    * returned `false`), or when the doc is closed before it synced.
    */
   open(): Promise<void>;
@@ -179,7 +190,7 @@ export interface DocHandle<D extends DocDef> extends Omit<DocState<D>, 'destroy'
    * once the server holds it for this member, and `false` when another member has it, the
    * client may only view, the doc is not open, or the socket is down. A lock is freed by
    * `unlock()`, `close()` or a disconnect; after a reconnect, call `lock()` again. A member
-   * holds at most 32 locks, each key at most 128 bytes.
+   * holds at most 32 locks, each key at most 128 bytes when written as JSON.
    *
    * @example
    * ```ts
@@ -319,13 +330,42 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
       .catch(onError);
   }
 
+  function notSent(reason: string): void {
+    onError(
+      new LiveThingError<'update-not-sent', UpdateNotSentDetail>('update-not-sent', {
+        type: ref.type,
+        id: ref.id,
+        reason,
+      }),
+    );
+  }
+
+  /**
+   * Send an update. One the socket can't send is not left waiting for an ack. While the socket
+   * is down, the sync after the reconnect sends it. While it is open, the socket will never
+   * send it, so `onError` hears of it.
+   */
   function send(update: Uint8Array): void {
+    if (update.length > MAX_UPDATE_BYTES) {
+      notSent(`the update is ${update.length} bytes, over the limit of ${MAX_UPDATE_BYTES}`);
+      return;
+    }
+
     sent += 1;
     const n = sent;
     pending.add(n);
+    let dropped = false;
     eachPart(update, (bytes, part) => {
-      room.binary.send('update', bytes, { info: part ? { n, part } : { n } });
+      dropped ||= !room.binary.send('update', bytes, { info: part ? { n, part } : { n } });
     });
+
+    if (dropped) {
+      pending.delete(n);
+      if (options.connection.get() === 'open') {
+        notSent('the open socket dropped it, as it drops a message over binary({ maxFrameBytes })');
+      }
+    }
+
     setStatus();
   }
 
@@ -344,13 +384,28 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
    * Whether this copy holds content the server's state vector does not cover, such as edits
    * loaded from the device. A delete adds no content, so only `unsent` catches those.
    */
-  function hasContentBeyond(serverVector: Uint8Array | undefined): boolean {
-    const server = serverVector ? Y.decodeStateVector(serverVector) : new Map<number, number>();
+  function hasContentBeyond(server: ReadonlyMap<number, number>): boolean {
     for (const [client, clock] of Y.decodeStateVector(Y.encodeStateVector(ydoc))) {
       if (clock > (server.get(client) ?? 0)) return true;
     }
 
     return false;
+  }
+
+  /**
+   * Content the server sent since this sync began. The server makes its vector before it
+   * answers, so another member's edit can reach this client first: it is the server's too.
+   */
+  let fromServer = new Map<number, number>();
+
+  /** What the server has: its vector, and what it sent since. */
+  function serverHas(serverVector: Uint8Array | undefined): Map<number, number> {
+    const has = serverVector ? Y.decodeStateVector(serverVector) : new Map<number, number>();
+    for (const [client, clock] of fromServer) {
+      has.set(client, Math.max(clock, has.get(client) ?? 0));
+    }
+
+    return has;
   }
 
   function refuse(reason: string): void {
@@ -379,6 +434,8 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     pending.clear();
     incoming = [];
 
+    fromServer = new Map();
+
     setStatus();
 
     let info: SyncInfo;
@@ -400,11 +457,11 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     synced = true;
     everSynced = true;
     // Everything the server lacks: edits made offline, or before this sync answered.
-    const serverVector = decodeBase64(info.vector) ?? undefined;
-    const missing = Y.encodeStateAsUpdate(ydoc, serverVector);
+    const server = serverHas(decodeBase64(info.vector) ?? undefined);
+    const missing = Y.encodeStateAsUpdate(ydoc, Y.encodeStateVector(server));
     if (info.access === 'edit') {
       if (!isEmpty(missing)) send(missing);
-    } else if (unsent || hasContentBeyond(serverVector)) {
+    } else if (unsent || hasContentBeyond(server)) {
       // Local edits (made offline, before access changed) never reach a viewer's server.
       refuse('this client may only view the doc');
     }
@@ -423,9 +480,37 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     }),
     room.status.subscribe((state) => {
       if (state !== 'subscribed') unsync();
+      // The room ended while the socket stayed open: the server removed this client (a kick,
+      // or `access` refused a rejoin). It does not join again by itself, so the doc closes.
+      // `disconnect()` ends the room before the socket's state changes: look a turn later.
+      if (state !== 'unsubscribed' && state !== 'failed') return;
+
+      queueMicrotask(() => {
+        const roomStatus = room.status.get();
+        if (roomStatus !== 'unsubscribed' && roomStatus !== 'failed') return;
+
+        if (!active || opening || options.connection.get() !== 'open') return;
+
+        const error = new Error(`the server removed this client from ${ref.type}:${ref.id}`);
+        // After the last close() the app has let the doc go: close it without an error.
+        const wanted = opens > 0;
+        stop(error);
+        if (wanted) onError(error);
+      });
     }),
     options.connection.subscribe((state) => {
-      if (state !== 'open') unsync();
+      if (state !== 'open') {
+        unsync();
+        return;
+      }
+
+      // `reconnection()` joins the room again, but `disconnect()` then `connect()` ends it
+      // for good: an open doc joins again itself. `open()` joins while it is opening.
+      const roomStatus = room.status.get();
+      if (active && !opening && (roomStatus === 'unsubscribed' || roomStatus === 'failed')) {
+        // A refusal leaves the room 'failed', and the check above reports it once.
+        room.subscribe().catch(() => {});
+      }
     }),
     room.binary.on('update', (info, bytes) => {
       incoming.push(bytes.slice());
@@ -435,6 +520,10 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
       incoming = [];
       try {
         Y.applyUpdate(ydoc, update, FROM_SERVER);
+        // `to` is where each client's content in the update ends, from any start.
+        for (const [client, clock] of Y.parseUpdateMeta(update).to) {
+          fromServer.set(client, Math.max(clock, fromServer.get(client) ?? 0));
+        }
       } catch (error) {
         onError(error);
       }
@@ -448,7 +537,11 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     }),
     room.binary.on('refused', (info, bytes) => {
       pending.delete(info.n);
-      if (bytes.length > 0) Y.applyUpdate(ydoc, bytes, FROM_SERVER);
+      try {
+        if (bytes.length > 0) Y.applyUpdate(ydoc, bytes, FROM_SERVER);
+      } catch (error) {
+        onError(error);
+      }
 
       // An earlier update was lost on the way: nothing was undone, so sync again, which
       // sends everything the server lacks.
@@ -464,7 +557,12 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     loaded ??= (async () => {
       if (!storage) return;
 
-      const updates = await storage.load(ref);
+      const reading = deviceWrites.then(() => storage.load(ref));
+      deviceWrites = reading.then(
+        () => {},
+        () => {},
+      );
+      const updates = await reading;
       deviceAppends = updates.length;
       Y.transact(
         ydoc,
@@ -481,12 +579,14 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     return loaded;
   }
 
-  /** Close the doc now: every `open()` still waiting gets `error`, and no open stays counted. */
+  /**
+   * Close the doc now: every `open()` still waiting gets `error`. Each failed `open()` stays
+   * counted, so its caller's `close()` does not take away a later caller's `open()`.
+   */
   function stop(error: unknown): void {
     if (lingering) clearTimeout(lingering);
 
     lingering = null;
-    opens = 0;
     active = false;
 
     synced = false;
@@ -565,6 +665,7 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     async restore(id) {
       checkCanEdit();
       const version = await readVersion(id);
+      checkVersion(def, version);
       handle.change(() => restoreFrom(ydoc, version, def));
     },
     async delete(id) {
@@ -635,7 +736,18 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
       return docState.change(mutate);
     },
     keyOf: docState.keyOf,
-    history: docState.history,
+    // An undo or a redo is a change, so it needs edit access too.
+    history: {
+      ...docState.history,
+      undo() {
+        checkCanEdit();
+        docState.history.undo();
+      },
+      redo() {
+        checkCanEdit();
+        docState.history.redo();
+      },
+    },
     anchor: docState.anchor,
     awareness: aware.awareness,
     lock: aware.lock,

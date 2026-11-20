@@ -63,6 +63,27 @@ expectTypeOf<NewTask>().toEqualTypeOf<{
   readonly notes: string;
 }>();
 
+// A field with a default, or one that takes undefined, may be left out of a write.
+const pollBoard = doc('poll-board', {
+  polls: list({
+    id: v.string(),
+    closed: v.optional(v.boolean(), false),
+    note: v.optional(v.string()),
+    options: { multiple: v.optional(v.boolean(), false) },
+  }),
+});
+type NewPoll = Input<(typeof pollBoard)['shape']['polls']>[number];
+expectTypeOf<NewPoll>().toEqualTypeOf<{
+  readonly id: string;
+  readonly closed?: boolean | undefined;
+  readonly note?: string | undefined;
+  readonly options: { readonly multiple?: boolean | undefined };
+}>();
+declare const polls: Draft<(typeof pollBoard)['shape']>;
+polls.polls.push({ id: 'p1', options: {} });
+// @ts-expect-error — a field with no default is still needed
+polls.polls.push({ options: {} });
+
 // ---- the draft that change() hands you ----
 
 declare const d: Draft<Board>;

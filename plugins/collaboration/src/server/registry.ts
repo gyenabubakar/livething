@@ -1,5 +1,5 @@
 import { ChangeOrigin, DocCore } from '~/doc/core.ts';
-import { restoreFrom } from '~/doc/restore.ts';
+import { checkVersion, restoreFrom } from '~/doc/restore.ts';
 import { applyChecked } from '~/server/check.ts';
 import * as Y from 'yjs';
 import type { CollaborationStorage, DocRef } from '~/doc/storage.ts';
@@ -8,10 +8,12 @@ import type { CheckResult } from '~/server/check.ts';
 
 /** Compact a doc's stored updates into one after this many appends. */
 const COMPACT_AFTER_UPDATES = 200;
-/** Or after this many bytes of appends. */
+/** Or after this many bytes of appends since the last compaction. */
 const COMPACT_AFTER_BYTES = 4 * 1024 * 1024;
 /** How long to wait before trying again to store a doc that could not be stored. */
 const RETRY_STORE_MS = 5000;
+/** The longest a shutdown waits for docs to be stored and saved. */
+const FLUSH_TIMEOUT_MS = 10_000;
 
 /** What the registry needs from the plugin. */
 export interface RegistryOptions {
@@ -33,7 +35,9 @@ interface OpenDoc {
   readonly core: DocCore;
   /** Stored writes for this doc, one after another. */
   writes: Promise<void>;
+  /** Rows in storage, counting the compacted state. */
   appends: number;
+  /** Bytes appended since the last compaction, not counting the compacted state. */
   bytes: number;
   saveTimer: ReturnType<typeof setTimeout> | null;
   /** How many calls use the doc now; it is not unloaded while one runs. */
@@ -45,6 +49,14 @@ interface OpenDoc {
   unstored: boolean;
   /** The timer that tries again to store an `unstored` doc nobody uses. */
   retry: ReturnType<typeof setTimeout> | null;
+  /** The last member left while a call still used the doc: save at once when it ends. */
+  saveWhenIdle: boolean;
+  /** The `onSave` running now, if any. */
+  saving: Promise<void> | null;
+}
+
+interface ReleaseOptions {
+  readonly saveNow: boolean;
 }
 
 function keyOf(doc: DocRef): string {
@@ -83,7 +95,7 @@ export class DocRegistry {
       return await use(doc);
     } finally {
       doc.busy -= 1;
-      this.release(ref);
+      this.release(ref, { saveNow: false });
     }
   }
 
@@ -99,9 +111,19 @@ export class DocRegistry {
   ): Promise<CheckResult> {
     return this.with(ref, async (doc) => {
       const result = applyChecked(doc.core, update, {});
-      applied(result);
       const stored = result.ok ? result.update : result.toOthers;
-      if (stored) await this.store(doc, stored);
+      // The doc holds the update now, so it is stored even when sending it on throws.
+      try {
+        applied(result);
+      } finally {
+        if (stored) {
+          await this.store(doc, stored);
+        } else if (doc.unstored) {
+          // Nothing new, but an earlier write failed: try again to store the whole doc.
+          doc.writes = doc.writes.then(() => this.write(doc, null));
+          await doc.writes;
+        }
+      }
 
       return result;
     });
@@ -114,7 +136,11 @@ export class DocRegistry {
 
   /** Make a doc hold what `version` holds, in one change. Every member gets it. */
   restore(ref: DocRef, version: Y.Doc): Promise<void> {
-    return this.edit(ref, (core) => () => restoreFrom(core.ydoc, version, core.def));
+    return this.edit(ref, (core) => {
+      // A version the schema now refuses (it changed since the save) must not reach the doc.
+      checkVersion(core.def, version);
+      return () => restoreFrom(core.ydoc, version, core.def);
+    });
   }
 
   /** The whole doc as one update. */
@@ -147,8 +173,12 @@ export class DocRegistry {
 
       if (made.length > 0) {
         const update = Y.mergeUpdates(made);
-        this.options.broadcast(ref, update);
-        await this.store(doc, update);
+        // The doc holds the change now, so it is stored even when sending it throws.
+        try {
+          this.options.broadcast(ref, update);
+        } finally {
+          await this.store(doc, update);
+        }
       }
 
       if (!outcome.ok) throw outcome.error;
@@ -170,8 +200,13 @@ export class DocRegistry {
     }));
   }
 
-  /** A member left, or a call ended: unload the doc when nothing needs it. */
-  release(ref: DocRef): void {
+  /**
+   * A member left, or a call ended: unload the doc when nothing needs it. A save that is due
+   * runs at once with `saveNow`, as when the last member leaves. Without it, the doc stays
+   * loaded until the save timer runs, so server changes with no members still wait
+   * `saveDelayMs`.
+   */
+  release(ref: DocRef, options: ReleaseOptions = { saveNow: true }): void {
     const key = keyOf(ref);
     const loading = this.docs.get(key);
     if (!loading) return;
@@ -181,7 +216,10 @@ export class DocRegistry {
       .then(() => loading)
       .then(
         async (doc) => {
-          if (!this.idle(doc)) return;
+          if (!this.idle(doc)) {
+            if (options.saveNow && this.options.members(doc.ref) === 0) doc.saveWhenIdle = true;
+            return;
+          }
 
           await doc.writes;
           if (doc.unstored) {
@@ -198,6 +236,9 @@ export class DocRegistry {
           }
 
           if (doc.saveTimer) {
+            if (!options.saveNow && !doc.saveWhenIdle) return;
+
+            doc.saveWhenIdle = false;
             clearTimeout(doc.saveTimer);
             doc.saveTimer = null;
             await this.save(doc);
@@ -211,11 +252,58 @@ export class DocRegistry {
           doc.core.destroy();
         },
         () => {},
-      );
+      )
+      .catch((error: unknown) => {
+        this.options.reportError(`could not unload '${key}'`, error);
+      });
   }
 
+  /**
+   * The server is stopping: wait for every doc's writes, for each save already running, and
+   * run every save that is due now. Storage or an `onSave` that never settles must not hold
+   * the shutdown, so this gives up after `FLUSH_TIMEOUT_MS` and logs it.
+   */
+  async flush(): Promise<void> {
+    const loaded = await Promise.allSettled(this.docs.values());
+    const done = Promise.all(
+      loaded.map(async (result) => {
+        if (result.status !== 'fulfilled') return;
+
+        const doc = result.value;
+        await doc.writes;
+        // A write failed earlier, so storage misses edits the doc holds: store the whole doc.
+        if (doc.unstored) {
+          doc.writes = doc.writes.then(() => this.write(doc, null));
+          await doc.writes;
+        }
+
+        // A save may queue behind the one running: wait until none is left.
+        while (doc.saving) await doc.saving;
+        if (!doc.saveTimer) return;
+
+        clearTimeout(doc.saveTimer);
+        doc.saveTimer = null;
+        await this.save(doc);
+      }),
+    ).then(() => true);
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), FLUSH_TIMEOUT_MS);
+    });
+    const finished = await Promise.race([done, late]);
+    clearTimeout(timer);
+    if (!finished) {
+      this.options.reportError(
+        `the server stopped before every doc was stored and saved, after ${FLUSH_TIMEOUT_MS} ms`,
+        null,
+      );
+    }
+  }
+
+  /** Nothing needs the doc: no call, no member, and no `onSave` running or queued. */
   private idle(doc: OpenDoc): boolean {
-    return doc.busy === 0 && this.options.members(doc.ref) === 0;
+    return doc.busy === 0 && !doc.saving && this.options.members(doc.ref) === 0;
   }
 
   private open(ref: DocRef): Promise<OpenDoc> {
@@ -263,11 +351,13 @@ export class DocRegistry {
       core: new DocCore(def, ydoc),
       writes: Promise.resolve(),
       appends: updates.length,
-      bytes: updates.reduce((size, update) => size + update.length, 0),
+      bytes: updates.slice(1).reduce((size, update) => size + update.length, 0),
       saveTimer: null,
       busy: 0,
       unstored: false,
       retry: null,
+      saveWhenIdle: false,
+      saving: null,
     };
   }
 
@@ -298,7 +388,7 @@ export class DocRegistry {
         const state = Y.encodeStateAsUpdate(doc.core.ydoc);
         await storage.compact(doc.ref, state);
         doc.appends = 1;
-        doc.bytes = state.length;
+        doc.bytes = 0;
       } else {
         await storage.append(doc.ref, update);
       }
@@ -319,13 +409,46 @@ export class DocRegistry {
     if (doc.saveTimer) clearTimeout(doc.saveTimer);
     doc.saveTimer = setTimeout(() => {
       doc.saveTimer = null;
-      void this.save(doc);
+      void this.save(doc).then(() => this.release(doc.ref, { saveNow: false }));
     }, this.options.saveDelayMs);
   }
 
-  private async save(doc: OpenDoc): Promise<void> {
+  /** Run `onSave` for `doc`. `doc.saving` holds the run, so a shutdown can wait for it. */
+  private save(doc: OpenDoc): Promise<void> {
+    // One run at a time for each doc, in order, so a slow run never finishes after a newer
+    // one. Each run reads the doc when it starts, so it saves the newest content.
+    const running = (doc.saving ?? Promise.resolve()).then(() => this.runSave(doc));
+    doc.saving = running;
+    // This save covers any "save when idle" a member's leave asked for.
+    doc.saveWhenIdle = false;
+    void running.finally(() => {
+      if (doc.saving !== running) return;
+
+      // The last queued save ended: the doc may unload now. Unloading earlier would start a
+      // second queue on the next load, and two saves could run at once.
+      doc.saving = null;
+      this.release(doc.ref, { saveNow: false });
+    });
+
+    return running;
+  }
+
+  private async runSave(doc: OpenDoc): Promise<void> {
+    if (!this.options.onSave) return;
+
+    let state: unknown;
     try {
-      await this.options.onSave?.(doc.ref, doc.core.read());
+      state = doc.core.read();
+    } catch (error) {
+      this.options.reportError(
+        `onSave did not run for '${keyOf(doc.ref)}': its content does not match the schema`,
+        error,
+      );
+      return;
+    }
+
+    try {
+      await this.options.onSave(doc.ref, state);
     } catch (error) {
       this.options.reportError(`onSave failed for '${keyOf(doc.ref)}'`, error);
     }

@@ -23,6 +23,8 @@
 //   server sends the version's Yjs state as `version` messages with that `n`, in parts like an
 //   update, then answers with the version's info and no bytes.
 
+import { wellFormed } from '~/doc/values.ts';
+
 /** The plugin's ID, and the namespace of its wire names. */
 export const PLUGIN_ID = 'livething:collaboration';
 
@@ -32,9 +34,25 @@ export const FAMILY = 'docs';
 /** The template of the family's room names. */
 export const ROOM_TEMPLATE = '{type}:{id}';
 
+/** The longest room name, `<type>:<id>`: LiveThing's limit on a channel name. */
+const MAX_ROOM_NAME = 256;
+
 /** The room of one doc. */
 export function roomName(type: string, id: string): string {
   return `${type}:${id}`;
+}
+
+/**
+ * Why `id` can't be a doc ID of `type`, or `null`. Half of an emoji alone is refused: the
+ * wire and SQL store it as U+FFFD, so two such IDs would share one doc.
+ */
+export function docIdProblem(type: string, id: unknown): string | null {
+  return typeof id === 'string' &&
+    id !== '' &&
+    roomName(type, id).length <= MAX_ROOM_NAME &&
+    wellFormed(id)
+    ? null
+    : `collaboration: a doc ID must be a string of 1 to ${MAX_ROOM_NAME - type.length - 1} characters, with no half of an emoji alone`;
 }
 
 /**
@@ -45,6 +63,9 @@ export const PART_BYTES = 256 * 1024;
 
 /** The most parts one update from a client can have. */
 export const MAX_PARTS = 256;
+
+/** The most bytes of one update from a client, all its parts together. */
+export const MAX_UPDATE_BYTES = 32 * 1024 * 1024;
 
 /** What a client can do with a doc. */
 export type Access = 'edit' | 'view';
@@ -80,6 +101,9 @@ export interface VersionInfo {
 
 /** The longest version label, in characters. */
 export const MAX_LABEL = 200;
+
+/** The longest delay `setTimeout` keeps. A longer one fires at once. */
+export const MAX_DELAY_MS = 2_147_483_647;
 
 /** The info of a `read-version` request: which version, and the `n` its `version` parts carry. */
 export interface ReadVersionInfo {
