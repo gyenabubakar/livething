@@ -57,7 +57,8 @@ export function text(): TextField {
 }
 
 /**
- * Rich text, edited through an editor's Yjs binding: ProseMirror (y-prosemirror) or Tiptap.
+ * Rich text, edited through an editor's Yjs binding: ProseMirror (y-prosemirror), Tiptap or
+ * BlockNote.
  * Its Yjs type is a `Y.XmlFragment`, which you get with `yjs.at()`. It reads as plain text
  * (for previews and search), one line per block. `change()` cannot assign it: edit it in the
  * editor. When you create an item that holds it (`push`, `insert`, `set`), you may give it

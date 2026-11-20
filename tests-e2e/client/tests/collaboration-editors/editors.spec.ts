@@ -7,6 +7,7 @@ import type { Browser, Page } from '@playwright/test';
 const EDITORS = {
   prosemirror: { content: '.ProseMirror', richText: true },
   tiptap: { content: '.ProseMirror', richText: true },
+  blocknote: { content: '.ProseMirror', richText: true },
   codemirror: { content: '.cm-content', richText: false },
   quill: { content: '.ql-editor', richText: false },
   monaco: { content: '.monaco-editor .view-lines', richText: false },

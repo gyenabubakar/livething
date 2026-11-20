@@ -14,10 +14,10 @@ import type * as Y from 'yjs';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
 // Real editors on Huddle's launch task board, bound through `board.yjs`. `?editor=` picks one:
-// the rich text editors (ProseMirror, Tiptap) edit the first task's notes, a `richText()`
+// the rich text editors (ProseMirror, Tiptap, BlockNote) edit the first task's notes, a `richText()`
 // field; the text editors (CodeMirror, Quill, Monaco) edit the board title, a `text()` field.
 // The page shows the field's text, and the other members whose editor cursor it can see.
-type EditorName = 'prosemirror' | 'tiptap' | 'codemirror' | 'quill' | 'monaco';
+type EditorName = 'prosemirror' | 'tiptap' | 'blocknote' | 'codemirror' | 'quill' | 'monaco';
 
 export function setup(): void {
   mount(`
@@ -36,7 +36,7 @@ export function setup(): void {
   const page = new URLSearchParams(location.search);
   const username = page.get('username') ?? 'alice';
   const editor = (page.get('editor') ?? 'prosemirror') as EditorName;
-  const richText = editor === 'prosemirror' || editor === 'tiptap';
+  const richText = editor === 'prosemirror' || editor === 'tiptap' || editor === 'blocknote';
 
   const HuddleCollaboration = collaboration({ docs: huddleDocs, closeDelayMs: 0 });
   const socket = client<CollaborationClient>()(
@@ -99,6 +99,24 @@ export function setup(): void {
           plugins: [y.ySyncPlugin(fragment), y.yCursorPlugin(yAwareness), y.yUndoPlugin()],
         }),
       });
+    } else if (editor === 'blocknote') {
+      const [{ BlockNoteEditor }, { CollaborationExtension }] = await Promise.all([
+        import('@blocknote/core'),
+        import('@blocknote/core/yjs'),
+      ]);
+      const blockNote = BlockNoteEditor.create({
+        extensions: [
+          CollaborationExtension({
+            fragment: board.yjs.at((p) => p.tasks[0]?.notes),
+            user: { name: username, color: '#c0392b' },
+            provider: { awareness: yAwareness },
+          }),
+        ],
+      });
+      // mount() makes the element it gets the editor itself, so it gets its own one.
+      const editable = document.createElement('div');
+      host.append(editable);
+      blockNote.mount(editable);
     } else if (editor === 'tiptap') {
       const [{ Editor }, { StarterKit }, { Collaboration }, { CollaborationCaret }] =
         await Promise.all([
