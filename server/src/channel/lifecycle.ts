@@ -85,26 +85,26 @@ export interface RevalidatePrimitive<TCtx = any> extends Primitive<'revalidate'>
 }
 
 /** Primitive type produced by `onSubscribe()`. */
-export interface SubscribePrimitive<TCtx = any> extends Primitive<'onSubscribe'> {
+export interface SubscribePrimitive<TCtx = any> extends Primitive<'on-subscribe'> {
   readonly handler: SubscribeHandler<TCtx>;
 }
 
 /** Primitive type produced by `onUnsubscribe()`. */
-export interface UnsubscribePrimitive<TCtx = any> extends Primitive<'onUnsubscribe'> {
+export interface UnsubscribePrimitive<TCtx = any> extends Primitive<'on-unsubscribe'> {
   readonly handler: UnsubscribeHandler<TCtx>;
 }
 
 /** Primitive type produced by `onSessionEnd()`. */
-export interface SessionEndPrimitive<TCtx = any> extends Primitive<'onSessionEnd'> {
+export interface SessionEndPrimitive<TCtx = any> extends Primitive<'on-session-end'> {
   readonly handler: SessionEndHandler<TCtx>;
 }
 
 const ON_CHECK_KEY = Symbol('check');
 const ON_REVALIDATE_KEY = Symbol('revalidate');
 const ON_COMMIT_KEY = Symbol('commit');
-const ON_SUBSCRIBE_KEY = Symbol('onSubscribe');
-const ON_UNSUBSCRIBE_KEY = Symbol('onUnsubscribe');
-const ON_SESSION_END_KEY = Symbol('onSessionEnd');
+const ON_SUBSCRIBE_KEY = Symbol('on-subscribe');
+const ON_UNSUBSCRIBE_KEY = Symbol('on-unsubscribe');
+const ON_SESSION_END_KEY = Symbol('on-session-end');
 
 /**
  * Run an async check before a client is allowed into a channel.
@@ -262,7 +262,7 @@ export function commit<TCtx, TCheck = unknown>(
  */
 export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePrimitive<TCtx> {
   return {
-    __livething: 'onSubscribe',
+    __livething: 'on-subscribe',
     __identity: [ON_SUBSCRIBE_KEY],
     __requires: {},
     handler,
@@ -280,7 +280,7 @@ export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePri
  */
 export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): UnsubscribePrimitive<TCtx> {
   return {
-    __livething: 'onUnsubscribe',
+    __livething: 'on-unsubscribe',
     __identity: [ON_UNSUBSCRIBE_KEY],
     __requires: {},
     handler,
@@ -298,7 +298,7 @@ export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): Unsubscr
  */
 export function onSessionEnd<TCtx>(handler: SessionEndHandler<TCtx>): SessionEndPrimitive<TCtx> {
   return {
-    __livething: 'onSessionEnd',
+    __livething: 'on-session-end',
     __identity: [ON_SESSION_END_KEY],
     __requires: {},
     handler,

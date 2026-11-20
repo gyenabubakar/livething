@@ -212,7 +212,7 @@ describe('hooks written in server({ ... })', () => {
     const base = server({ onConnect() {} });
 
     function hookCount(definition: { primitives: readonly { __livething: string }[] }) {
-      return definition.primitives.filter((p) => p.__livething === 'onConnect').length;
+      return definition.primitives.filter((p) => p.__livething === 'on-connect').length;
     }
 
     expect(hookCount(base.assemble({ handlers: [] }))).toBe(1);

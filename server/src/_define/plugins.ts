@@ -34,21 +34,21 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'upload',
   'channel',
   'scheduled',
-  'scheduledSurface',
+  'scheduled-surface',
   'tag-groups',
   'tag-persistence-runtime',
   'errors',
-  'onInit',
-  'onConnect',
-  'onDisconnect',
-  'onShutdown',
-  'onError',
-  'onAuthenticate',
-  'onPing',
-  'onPong',
+  'on-init',
+  'on-connect',
+  'on-disconnect',
+  'on-shutdown',
+  'on-error',
+  'on-authenticate',
+  'on-ping',
+  'on-pong',
   // Hooks that ride along stamped with their owner, not namespaced events.
   'intercept',
-  'outgoingHook',
+  'outgoing-hook',
   // Internal carriers that ride along but need no namespacing.
   'sequence',
   // The server→client request install primitive: a global pending map and ctx
@@ -64,10 +64,10 @@ const ALLOWED_PLUGIN_KINDS = new Set([
 ]);
 
 /** Symbol key for a plugin's API-registration primitive. */
-const PLUGIN_API_KEY = Symbol('pluginApi');
+const PLUGIN_API_KEY = Symbol('plugin-api');
 
 /** Symbol key so the `ctx.plugin` accessor installs once, however many plugins are listed. */
-const PLUGIN_SURFACE_KEY = Symbol('pluginSurface');
+const PLUGIN_SURFACE_KEY = Symbol('plugin-surface');
 
 /**
  * The `ctx.plugin(id)` accessor for connection contexts. A plugin's `api` is
@@ -84,7 +84,7 @@ function buildPluginAccessor(engine: EngineAccess): Record<string, unknown> {
  */
 function pluginSurfacePrimitive(): Primitive {
   return {
-    __livething: 'pluginSurface',
+    __livething: 'plugin-surface',
     __identity: [PLUGIN_SURFACE_KEY],
     __requires: {},
     __setup(engine) {
@@ -209,7 +209,7 @@ export type InferPluginClient<TPlugin> = TPlugin extends () => PluginCapability<
 /** Registers the plugin's id, with its api factory when it has one, so `plugin(id)` can tell the two apart. */
 function pluginApiPrimitive(id: string, factory: ((ctx: any) => unknown) | undefined): Primitive {
   return {
-    __livething: 'pluginApi',
+    __livething: 'plugin-api',
     __identity: [PLUGIN_API_KEY, id],
     __requires: {},
     __setup(engine) {

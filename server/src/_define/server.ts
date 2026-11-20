@@ -2099,14 +2099,14 @@ function adaptAuth(fn: AuthFn<any>): AuthHandler {
 const SCOPED_AUTH_KEY = Symbol('scopedAuth');
 
 /**
- * Build the carrier for a plugin's `authenticate(...)`. It is tagged `onAuthenticate` so it
+ * Build the carrier for a plugin's `authenticate(...)`. It is tagged `on-authenticate` so it
  * is visible to `assertSupported`, but carries `__scopedAuth` so
  * `namespacePluginPrimitives` reroutes its `__setup` to `registerPluginAuth`
  * (bound to the real plugin id) — never the app's single builder slot.
  */
 function scopedAuthPrimitive(handler: AuthHandler, baseId: symbol): Primitive {
   return {
-    __livething: 'onAuthenticate',
+    __livething: 'on-authenticate',
     __identity: [SCOPED_AUTH_KEY],
     __requires: {},
     __scopedAuth: true,

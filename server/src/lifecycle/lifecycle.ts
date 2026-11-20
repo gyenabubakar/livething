@@ -91,53 +91,53 @@ export type AuthHandler = (
 ) => AuthResult | Promise<AuthResult>;
 
 /** The TypeScript type returned by `onInit()`. */
-export interface InitPrimitive<TCtx = any> extends Primitive<'onInit'> {
+export interface InitPrimitive<TCtx = any> extends Primitive<'on-init'> {
   readonly handler: InitHandler<TCtx>;
 }
 
 /** The TypeScript type returned by `onConnect()`. */
-export interface ConnectPrimitive<TCtx = any> extends Primitive<'onConnect'> {
+export interface ConnectPrimitive<TCtx = any> extends Primitive<'on-connect'> {
   readonly handler: ConnectHandler<TCtx>;
 }
 
 /** The TypeScript type returned by `onDisconnect()`. */
-export interface DisconnectPrimitive<TCtx = any> extends Primitive<'onDisconnect'> {
+export interface DisconnectPrimitive<TCtx = any> extends Primitive<'on-disconnect'> {
   readonly handler: DisconnectHandler<TCtx>;
 }
 
 /** The TypeScript type returned by `onPing()`. */
-export interface PingPrimitive<TCtx = any> extends Primitive<'onPing'> {
+export interface PingPrimitive<TCtx = any> extends Primitive<'on-ping'> {
   readonly handler: PingHandler<TCtx>;
 }
 
 /** The TypeScript type returned by `onPong()`. */
-export interface PongPrimitive<TCtx = any> extends Primitive<'onPong'> {
+export interface PongPrimitive<TCtx = any> extends Primitive<'on-pong'> {
   readonly handler: PongHandler<TCtx>;
 }
 
 /** The TypeScript type returned by `onShutdown()`. */
-export interface ShutdownPrimitive<TCtx = any> extends Primitive<'onShutdown'> {
+export interface ShutdownPrimitive<TCtx = any> extends Primitive<'on-shutdown'> {
   readonly handler: ShutdownHandler<TCtx>;
 }
 
 /** The TypeScript type returned by `onError()`. */
-export interface ErrorPrimitive<TCtx = any> extends Primitive<'onError'> {
+export interface ErrorPrimitive<TCtx = any> extends Primitive<'on-error'> {
   readonly handler: ErrorHandler<TCtx>;
 }
 
 /** The TypeScript type returned by `onAuthenticate()`. */
-export interface AuthPrimitive extends Primitive<'onAuthenticate'> {
+export interface AuthPrimitive extends Primitive<'on-authenticate'> {
   readonly handler: AuthHandler;
 }
 
-const ON_INIT_KEY = Symbol('onInit');
-const ON_CONNECT_KEY = Symbol('onConnect');
-const ON_DISCONNECT_KEY = Symbol('onDisconnect');
-const ON_PING_KEY = Symbol('onPing');
-const ON_PONG_KEY = Symbol('onPong');
-const ON_SHUTDOWN_KEY = Symbol('onShutdown');
-const ON_ERROR_KEY = Symbol('onError');
-const ON_AUTHENTICATE_KEY = Symbol('onAuthenticate');
+const ON_INIT_KEY = Symbol('on-init');
+const ON_CONNECT_KEY = Symbol('on-connect');
+const ON_DISCONNECT_KEY = Symbol('on-disconnect');
+const ON_PING_KEY = Symbol('on-ping');
+const ON_PONG_KEY = Symbol('on-pong');
+const ON_SHUTDOWN_KEY = Symbol('on-shutdown');
+const ON_ERROR_KEY = Symbol('on-error');
+const ON_AUTHENTICATE_KEY = Symbol('on-authenticate');
 
 /** @internal */
 function makeLifecycle<TTag extends string>(
@@ -179,7 +179,7 @@ function intoContextHandler(
  * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  */
 export const onInit = Object.assign(
-  makeLifecycle('onInit', ON_INIT_KEY, (e, h) => e.onInit(h)) as <TCtx>(
+  makeLifecycle('on-init', ON_INIT_KEY, (e, h) => e.onInit(h)) as <TCtx>(
     handler: InitHandler<TCtx>,
   ) => InitPrimitive<TCtx>,
   { __key: ON_INIT_KEY },
@@ -190,7 +190,7 @@ export const onInit = Object.assign(
  * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  */
 export const onConnect = Object.assign(
-  makeLifecycle('onConnect', ON_CONNECT_KEY, (e, h) => e.onConnect(h)) as <TCtx>(
+  makeLifecycle('on-connect', ON_CONNECT_KEY, (e, h) => e.onConnect(h)) as <TCtx>(
     handler: ConnectHandler<TCtx>,
   ) => ConnectPrimitive<TCtx>,
   { __key: ON_CONNECT_KEY },
@@ -201,7 +201,7 @@ export const onConnect = Object.assign(
  * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  */
 export const onDisconnect = Object.assign(
-  makeLifecycle('onDisconnect', ON_DISCONNECT_KEY, (e, h) => e.onDisconnect(h)) as <TCtx>(
+  makeLifecycle('on-disconnect', ON_DISCONNECT_KEY, (e, h) => e.onDisconnect(h)) as <TCtx>(
     handler: DisconnectHandler<TCtx>,
   ) => DisconnectPrimitive<TCtx>,
   { __key: ON_DISCONNECT_KEY },
@@ -214,7 +214,7 @@ export const onDisconnect = Object.assign(
  * The engine has already answered the client with `pong` by the time this runs.
  */
 export const onPing = Object.assign(
-  makeLifecycle('onPing', ON_PING_KEY, (engine, handler) =>
+  makeLifecycle('on-ping', ON_PING_KEY, (engine, handler) =>
     engine.onAppPing(intoContextHandler(engine, handler)),
   ) as <TCtx>(handler: PingHandler<TCtx>) => PingPrimitive<TCtx>,
   { __key: ON_PING_KEY },
@@ -228,7 +228,7 @@ export const onPing = Object.assign(
  * time this runs, so `ctx.latency` reflects the pong that triggered it.
  */
 export const onPong = Object.assign(
-  makeLifecycle('onPong', ON_PONG_KEY, (engine, handler) =>
+  makeLifecycle('on-pong', ON_PONG_KEY, (engine, handler) =>
     engine.onAppPong(intoContextHandler(engine, handler)),
   ) as <TCtx>(handler: PongHandler<TCtx>) => PongPrimitive<TCtx>,
   { __key: ON_PONG_KEY },
@@ -239,7 +239,7 @@ export const onPong = Object.assign(
  * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  */
 export const onShutdown = Object.assign(
-  makeLifecycle('onShutdown', ON_SHUTDOWN_KEY, (e, h) => e.onShutdown(h)) as <TCtx>(
+  makeLifecycle('on-shutdown', ON_SHUTDOWN_KEY, (e, h) => e.onShutdown(h)) as <TCtx>(
     handler: ShutdownHandler<TCtx>,
   ) => ShutdownPrimitive<TCtx>,
   { __key: ON_SHUTDOWN_KEY },
@@ -250,7 +250,7 @@ export const onShutdown = Object.assign(
  * of `server({ ... })` — this factory is used internally by `assemble(...)`.
  */
 export const onError = Object.assign(
-  makeLifecycle('onError', ON_ERROR_KEY, (e, h) => e.onError(h)) as <TCtx>(
+  makeLifecycle('on-error', ON_ERROR_KEY, (e, h) => e.onError(h)) as <TCtx>(
     handler: ErrorHandler<TCtx>,
   ) => ErrorPrimitive<TCtx>,
   { __key: ON_ERROR_KEY },
@@ -261,7 +261,7 @@ export const onError = Object.assign(
  * `server(...)` — this factory is used internally by `assemble(...)`.
  */
 export const onAuthenticate = Object.assign(
-  makeLifecycle('onAuthenticate', ON_AUTHENTICATE_KEY, (e, h) => e.setBuilderAuthHook(h)) as (
+  makeLifecycle('on-authenticate', ON_AUTHENTICATE_KEY, (e, h) => e.setBuilderAuthHook(h)) as (
     handler: AuthHandler,
   ) => AuthPrimitive,
   { __key: ON_AUTHENTICATE_KEY },

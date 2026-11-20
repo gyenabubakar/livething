@@ -79,9 +79,9 @@ describe('plugin() — scoped server definition + manifest', () => {
     expect(send).toHaveBeenCalledWith('__acme:presence::user-online', { id: 'conn_1' });
   });
 
-  it('registers its API factory through a pluginApi primitive', () => {
+  it('registers its API factory through a plugin-api primitive', () => {
     const { __primitives } = buildPresence()();
-    const apiPrimitive = findPrimitive(__primitives, 'pluginApi');
+    const apiPrimitive = findPrimitive(__primitives, 'plugin-api');
     const registerPluginApi = vi.fn();
     apiPrimitive.__setup({ registerPluginApi });
     expect(registerPluginApi).toHaveBeenCalledWith('acme:presence', expect.any(Function));
@@ -121,7 +121,7 @@ describe('plugin() — scoped server definition + manifest', () => {
     const { __primitives } = plugin('acme:presence', {
       definition: h.assemble({ handlers: [] }),
     })();
-    const connectPrimitive = findPrimitive(__primitives, 'onConnect');
+    const connectPrimitive = findPrimitive(__primitives, 'on-connect');
     const registerPluginLifecycle = vi.fn();
 
     connectPrimitive.__setup({ registerPluginLifecycle });
@@ -303,7 +303,7 @@ describe('plugin() — hook ownership', () => {
     const cap = buildHookPlugin()();
     const primitives = cap.__primitives as readonly any[];
     const intercept = primitives.find((p) => p.__livething === 'intercept');
-    const outgoing = primitives.find((p) => p.__livething === 'outgoingHook');
+    const outgoing = primitives.find((p) => p.__livething === 'outgoing-hook');
 
     expect(intercept.__owner).toEqual({ kind: 'plugin', id: 'acme:obs' });
     expect(outgoing.__owner).toEqual({ kind: 'plugin', id: 'acme:obs' });
