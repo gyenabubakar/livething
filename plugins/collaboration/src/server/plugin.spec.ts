@@ -6,7 +6,8 @@ import { open, task, taskBoard } from '~/test/task-board.ts';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import type { Engine } from '@livething/server/adapters';
-import type { CollaborationStorage } from '~/doc/storage.ts';
+import type { VersionInfo } from '~/doc/wire.ts';
+import type { ServerStorage } from '~/server/storage.ts';
 
 /** A client with its own copy of the board, in sync with the server. */
 async function member(engine: Engine, userId: string, id = 'launch') {
@@ -63,7 +64,13 @@ function firstTask(ydoc: Y.Doc): Y.Map<unknown> {
 /** Storage in memory, over `docs` (the stored updates of each doc), that records what the plugin asks of it. */
 function memoryStorage(docs = new Map<string, Uint8Array[]>()) {
   const calls: string[] = [];
-  const storage: CollaborationStorage = {
+  const versions = new Map<string, { info: VersionInfo; state: Uint8Array }>();
+  const storage: ServerStorage = {
+    saveVersion(_doc, info, state) {
+      versions.set(info.id, { info, state });
+    },
+    listVersions: () => [...versions.values()].map((version) => version.info).reverse(),
+    readVersion: (_doc, id) => versions.get(id)?.state ?? null,
     load(doc) {
       calls.push(`load ${doc.type}:${doc.id}`);
       return [...(docs.get(`${doc.type}:${doc.id}`) ?? [])];
@@ -439,7 +446,7 @@ describe('collaboration() on the server', () => {
     it('after a failed store, logs it, acks the live edit, and stores the whole doc next', async () => {
       const { storage, docs } = memoryStorage();
       let failures = 1;
-      const flaky: CollaborationStorage = {
+      const flaky: ServerStorage = {
         ...storage,
         append(doc, update) {
           if (failures-- > 0) throw new Error('disk full');
@@ -464,7 +471,7 @@ describe('collaboration() on the server', () => {
     it('keeps a doc it could not store loaded, and stores it when the last member leaves', async () => {
       const { storage, docs } = memoryStorage();
       let failing = true;
-      const flaky: CollaborationStorage = {
+      const flaky: ServerStorage = {
         ...storage,
         append(doc, update) {
           if (failing) throw new Error('disk full');
@@ -682,6 +689,173 @@ describe('collaboration() on the server', () => {
       expect(() => api().doc('poll' as never, 'x')).toThrow("there is no doc type 'poll'");
       expect(() => api().doc('task-board', '')).toThrow(/doc ID/);
       expect(() => api().doc('task-board', 'x'.repeat(300))).toThrow(/doc ID/);
+    });
+  });
+
+  describe('versions', () => {
+    /** The version bytes the server sent as `version` parts for read `n`, as a Y.Doc. */
+    function versionSent(
+      client: { of(event: string): { info: unknown; bytes?: Uint8Array }[] },
+      n: number,
+    ) {
+      const parts = client.of('version').filter((frame) => (frame.info as { n: number }).n === n);
+      const ydoc = new Y.Doc();
+      Y.applyUpdate(ydoc, joinBytes(parts.map((frame) => frame.bytes!)));
+      return { parts, board: open(taskBoard, ydoc) };
+    }
+
+    it('saves, lists newest first, reads and restores versions from server code', async () => {
+      const { engine, api } = await startServer();
+      const amara = await member(engine, 'u_amara');
+      const launch = api().doc('task-board', 'launch');
+      await launch.change((d) => {
+        d.title = 'Launch';
+        d.tasks.push(task('t1'));
+      });
+      const first = await launch.versions.save('Before the review');
+
+      await launch.change((d) => {
+        d.title = 'Launch, reviewed';
+      });
+      await launch.versions.save('After the review', { author: 'u_kofi' });
+      await launch.change((d) => {
+        d.title = 'Scrapped';
+        d.tasks.delete(0, 1);
+      });
+
+      expect(first).toEqual({
+        id: expect.any(String),
+        label: 'Before the review',
+        createdAt: expect.any(Number),
+        author: null,
+      });
+      expect((await launch.versions.list()).map((v) => [v.label, v.author])).toEqual([
+        ['After the review', 'u_kofi'],
+        ['Before the review', null],
+      ]);
+      expect(await launch.versions.read(first.id)).toMatchObject({
+        title: 'Launch',
+        tasks: [{ id: 't1' }],
+      });
+
+      await launch.versions.restore(first.id);
+      amara.catchUp();
+
+      expect(amara.board.state.get()).toMatchObject({ title: 'Launch', tasks: [{ id: 't1' }] });
+      expect((await launch.read()).title).toBe('Launch');
+    });
+
+    it('refuses a version ID it does not have, and a label that is empty or too long', async () => {
+      const { api } = await startServer();
+      const launch = api().doc('task-board', 'launch');
+
+      await expect(launch.versions.read('v_none')).rejects.toMatchObject({
+        code: 'version-not-found',
+        detail: { type: 'task-board', id: 'launch', version: 'v_none' },
+      });
+      await expect(launch.versions.restore('v_none')).rejects.toMatchObject({
+        code: 'version-not-found',
+      });
+      await expect(launch.versions.save('')).rejects.toThrow(/label/);
+      await expect(launch.versions.save('x'.repeat(201))).rejects.toThrow(/label/);
+    });
+
+    it('lets an editor save a version as its author, and a viewer list and read them', async () => {
+      const { engine, api } = await startServer();
+      await api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = 'Launch';
+        });
+      const amara = await member(engine, 'u_amara');
+      const guest = await member(engine, 'u_guest');
+
+      const saved = await amara.request('launch', 'save-version', { label: 'Draft' });
+      const info = saved?.info as { id: string };
+      const listed = await guest.request('launch', 'list-versions', null);
+      const read = await guest.binaryRequest('launch', 'read-version', { id: info.id, n: 1 });
+
+      expect(saved?.info).toEqual({
+        id: expect.any(String),
+        label: 'Draft',
+        createdAt: expect.any(Number),
+        author: 'u_amara',
+      });
+      expect(listed?.info).toEqual({ versions: [saved?.info] });
+      expect(read?.info).toBeNull();
+      expect(versionSent(guest, 1).board.state.get().title).toBe('Launch');
+      expect(guest.errors()).toEqual([]);
+    });
+
+    it('refuses a save from a viewer, a bad label, and a version ID it does not have', async () => {
+      const { engine } = await startServer();
+      const amara = await member(engine, 'u_amara');
+      const guest = await member(engine, 'u_guest');
+
+      await guest.request('launch', 'save-version', { label: 'Draft' });
+      await amara.request('launch', 'save-version', { label: '' });
+      await amara.request('launch', 'save-version', { label: 'x'.repeat(201) });
+      await amara.binaryRequest('launch', 'read-version', { id: 'v_none', n: 1 });
+
+      expect(guest.errors().map((error) => error.code)).toEqual(['access-denied']);
+      expect(amara.errors()).toEqual([
+        expect.objectContaining({ code: 'validation-failed' }),
+        expect.objectContaining({ code: 'validation-failed' }),
+        expect.objectContaining({
+          code: 'version-not-found',
+          detail: { type: 'task-board', id: 'launch', version: 'v_none' },
+        }),
+      ]);
+    });
+
+    it('sends a big version in parts before the answer', async () => {
+      const { engine, api } = await startServer({ sendBytes: 300_000 });
+      const title = 'x'.repeat(700_000);
+      const launch = api().doc('task-board', 'launch');
+      await launch.change((d) => {
+        d.title = title;
+      });
+      const saved = await launch.versions.save('Long title');
+
+      const amara = await member(engine, 'u_amara');
+
+      await amara.binaryRequest('launch', 'read-version', { id: saved.id, n: 7 });
+      const { parts, board } = versionSent(amara, 7);
+
+      expect(parts.length).toBeGreaterThan(1);
+      expect(board.state.get().title).toBe(title);
+      expect(amara.errors()).toEqual([]);
+    });
+
+    it('keeps versions in the server SQL across servers, in rows with a metadata column', async () => {
+      const sql = testSql(2048);
+      const first = await startServer({ sql });
+      const title = 'x'.repeat(5000);
+      await first
+        .api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = title;
+        });
+      const saved = await first.api().doc('task-board', 'launch').versions.save('Long title');
+
+      const second = await startServer({ sql });
+      const launch = second.api().doc('task-board', 'launch');
+
+      expect(await launch.versions.list()).toEqual([saved]);
+      expect((await launch.versions.read(saved.id)).title).toBe(title);
+      for (const table of [
+        'livething_collaboration_versions',
+        'livething_collaboration_version_parts',
+      ]) {
+        expect(sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray()).toContainEqual(
+          expect.objectContaining({ name: 'metadata' }),
+        );
+      }
+
+      expect(
+        sql.exec('SELECT * FROM livething_collaboration_version_parts').toArray().length,
+      ).toBeGreaterThan(1);
     });
   });
 

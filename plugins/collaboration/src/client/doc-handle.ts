@@ -5,6 +5,7 @@ import { createDocState } from '~/client/doc-state.ts';
 import { createStore } from '~/client/store.ts';
 import { DocCore } from '~/doc/core.ts';
 import { eachPart, joinBytes } from '~/doc/parts.ts';
+import { restoreFrom } from '~/doc/restore.ts';
 import { OUT_OF_ORDER } from '~/doc/wire.ts';
 import * as Y from 'yjs';
 import type { AwarenessRoom, DocAwareness, LockHolder } from '~/client/awareness.ts';
@@ -12,8 +13,17 @@ import type { TextInput } from '~/client/bind-text.ts';
 import type { DocState } from '~/client/doc-state.ts';
 import type { ReadableStore } from '~/client/store.ts';
 import type { CollaborationStorage, DocRef } from '~/doc/storage.ts';
-import type { Access, RefusedInfo, ServerUpdateInfo, SyncInfo, UpdateInfo } from '~/doc/wire.ts';
-import type { DocDef, PathOf, YRef } from '~/schema.ts';
+import type {
+  Access,
+  ReadVersionInfo,
+  RefusedInfo,
+  ServerUpdateInfo,
+  SyncInfo,
+  UpdateInfo,
+  VersionInfo,
+  VersionPartInfo,
+} from '~/doc/wire.ts';
+import type { DocDef, PathOf, Snapshot, YRef } from '~/schema.ts';
 import type { Awareness } from 'y-protocols/awareness';
 
 /** Updates the plugin applies itself, from the server or the device. They are not sent back. */
@@ -52,7 +62,27 @@ export interface DocRoom extends AwarenessRoom {
     on(event: 'update', handler: (info: ServerUpdateInfo, bytes: Uint8Array) => void): () => void;
     on(event: 'ack', handler: (info: { n: number }) => void): () => void;
     on(event: 'refused', handler: (info: RefusedInfo, bytes: Uint8Array) => void): () => void;
+    on(event: 'version', handler: (info: VersionPartInfo, bytes: Uint8Array) => void): () => void;
+    request(
+      event: 'read-version',
+      bytes: Uint8Array,
+      options: { info: ReadVersionInfo },
+    ): Promise<{ info: null; bytes: Uint8Array }>;
   };
+  request(event: 'save-version', payload: { label: string }): Promise<VersionInfo>;
+  request(event: 'list-versions', payload: null): Promise<{ versions: readonly VersionInfo[] }>;
+}
+
+/** A doc's saved versions, kept on the server. */
+export interface DocVersions<D extends DocDef> {
+  /** Save the doc as it is on the server, after this client's sent changes reach it. */
+  save(label: string): Promise<VersionInfo>;
+  /** The doc's versions, newest first. */
+  list(): Promise<readonly VersionInfo[]>;
+  /** One version's content. */
+  read(id: string): Promise<Snapshot<D['shape']>>;
+  /** Make the doc hold what a version holds, in one `change()`, so `history.undo()` takes it back. */
+  restore(id: string): Promise<void>;
 }
 
 type Picker<D extends DocDef, T> = (path: PathOf<D['shape']>) => T | undefined;
@@ -88,6 +118,7 @@ export interface DocHandle<D extends DocDef> extends Omit<DocState<D>, 'destroy'
   bindText(input: TextInput, pick: Picker<D, YRef<Y.Text>>): () => void;
   /** The raw Yjs objects, for rich text editors. */
   readonly yjs: DocState<D>['yjs'] & { readonly awareness: Awareness };
+  readonly versions: DocVersions<D>;
 }
 
 export interface DocHandleOptions<D extends DocDef> {
@@ -152,6 +183,9 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
   const pending = new Set<number>();
 
   let incoming: Uint8Array[] = [];
+  /** The `version` parts of each version read in flight, by its `n`. */
+  const versionParts = new Map<number, Uint8Array[]>();
+  let reads = 0;
 
   let deviceWrites: Promise<void> = Promise.resolve();
   let deviceAppends = 0;
@@ -264,6 +298,9 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
         onError(error);
       }
     }),
+    room.binary.on('version', (info, bytes) => {
+      versionParts.get(info.n)?.push(bytes.slice());
+    }),
     room.binary.on('ack', (info) => {
       pending.delete(info.n);
       setStatus();
@@ -336,6 +373,67 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     stop(new Error(`the doc ${ref.type}:${ref.id} was closed before it was synced`));
   }
 
+  function checkCanEdit(): void {
+    if (access.store.get() !== 'view') return;
+
+    throw new LiveThingError<'read-only', ReadOnlyDetail>('read-only', {
+      type: ref.type,
+      id: ref.id,
+    });
+  }
+
+  /** Wait until the server acked every change this client sent, or the doc went offline. */
+  function sentAll(): Promise<void> {
+    if (pending.size === 0) return Promise.resolve();
+
+    return new Promise((resolve) => {
+      const stopWatching = status.store.subscribe((value) => {
+        if (value === 'saving') return;
+
+        stopWatching();
+        resolve();
+      });
+    });
+  }
+
+  /** A version as a Y.Doc. Its state comes as `version` parts before the answer. */
+  async function readVersion(id: string): Promise<Y.Doc> {
+    reads += 1;
+    const n = reads;
+    versionParts.set(n, []);
+    try {
+      await room.binary.request('read-version', new Uint8Array(0), { info: { id, n } });
+      const version = new Y.Doc();
+      Y.applyUpdate(version, joinBytes(versionParts.get(n)!));
+      return version;
+    } finally {
+      versionParts.delete(n);
+    }
+  }
+
+  const versions: DocVersions<D> = {
+    async save(label) {
+      await sentAll();
+      return room.request('save-version', { label });
+    },
+    async list() {
+      return (await room.request('list-versions', null)).versions;
+    },
+    async read(id) {
+      const version = new DocCore(def, await readVersion(id));
+      try {
+        return version.read();
+      } finally {
+        version.destroy();
+      }
+    },
+    async restore(id) {
+      checkCanEdit();
+      const version = await readVersion(id);
+      handle.change(() => restoreFrom(ydoc, version, def));
+    },
+  };
+
   const handle: DocHandle<D> = {
     type: def.name,
     id: ref.id,
@@ -395,13 +493,7 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     state: docState.state,
     select: docState.select,
     change(mutate) {
-      if (access.store.get() === 'view') {
-        throw new LiveThingError<'read-only', ReadOnlyDetail>('read-only', {
-          type: ref.type,
-          id: ref.id,
-        });
-      }
-
+      checkCanEdit();
       return docState.change(mutate);
     },
     keyOf: docState.keyOf,
@@ -421,6 +513,7 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
         return aware.yjs();
       },
     },
+    versions,
   };
 
   return handle;

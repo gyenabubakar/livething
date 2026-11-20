@@ -130,6 +130,33 @@ test.describe('collaboration', () => {
     await expect(alice.getByTestId('title')).toHaveText('Launch');
   });
 
+  test('a member saves a version and restores it for everyone, and undo takes it back', async ({
+    browser,
+  }, testInfo) => {
+    const room = `collab-${testInfo.testId}`;
+    const alice = await openMember(browser, { room, username: 'alice' });
+    const bob = await openMember(browser, { room, username: 'bob' });
+    const guest = await openMember(browser, { room, username: 'guest' });
+
+    await rename(alice, 'Draft');
+    await alice.getByTestId('save-version').click();
+    await expect(alice.getByTestId('versions')).toHaveText('Saved as Draft=alice');
+    await rename(bob, 'Final');
+    await expect(alice.getByTestId('title')).toHaveText('Final');
+
+    await alice.getByTestId('restore-oldest-version').click();
+
+    await expect(alice.getByTestId('version-title')).toHaveText('Draft');
+    for (const page of [alice, bob, guest]) {
+      await expect(page.getByTestId('title')).toHaveText('Draft');
+    }
+
+    await alice.getByTestId('undo').click();
+    await expect(bob.getByTestId('title')).toHaveText('Final');
+    await guest.getByTestId('save-version').click();
+    await expect(guest.getByTestId('errors')).toHaveText('access-denied');
+  });
+
   test('members see where the others are, and one member at a time holds a lock', async ({
     browser,
   }, testInfo) => {

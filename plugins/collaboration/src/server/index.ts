@@ -9,4 +9,6 @@ export type {
   SaveContext,
   SaveEvent,
   ServerDoc,
+  ServerVersions,
 } from '~/server/plugin.ts';
+export type { ServerStorage } from '~/server/storage.ts';

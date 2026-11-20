@@ -17,6 +17,11 @@
 // - `ack`: the server took update `n`. It is live, and every member has it. If storing it
 //   failed, the server keeps the doc loaded and stores it later.
 // - `refused`: the server refused update `n`. The bytes undo it, when it was applied.
+// - `save-version` and `list-versions` (JSON requests): save the doc as it is now, and list
+//   the saved versions, newest first.
+// - `read-version` (a binary request): the client names the version and a number `n`. The
+//   server sends the version's Yjs state as `version` messages with that `n`, in parts like an
+//   update, then answers with the version's info and no bytes.
 
 /** The plugin's ID, and the namespace of its wire names. */
 export const PLUGIN_ID = 'livething:collaboration';
@@ -62,6 +67,31 @@ export interface UpdateInfo {
 
 /** The info of the server's `update`: `null`, or which part this is. */
 export type ServerUpdateInfo = { readonly part: Part } | null;
+
+/** One saved version of a doc. */
+export interface VersionInfo {
+  readonly id: string;
+  readonly label: string;
+  /** When it was saved, in ms since 1970. */
+  readonly createdAt: number;
+  /** The user who saved it, or `null` when server code saved it with no author. */
+  readonly author: string | null;
+}
+
+/** The longest version label, in characters. */
+export const MAX_LABEL = 200;
+
+/** The info of a `read-version` request: which version, and the `n` its `version` parts carry. */
+export interface ReadVersionInfo {
+  readonly id: string;
+  readonly n: number;
+}
+
+/** The info of a `version` message: a piece of the version read `n` asked for. */
+export interface VersionPartInfo {
+  readonly n: number;
+  readonly part?: Part;
+}
 
 /**
  * The reason of a refusal for an update that starts past what the server has, as when an

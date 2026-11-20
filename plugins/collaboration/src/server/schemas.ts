@@ -1,5 +1,6 @@
+import { MAX_LABEL } from '~/doc/wire.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
-import type { UpdateInfo } from '~/doc/wire.ts';
+import type { ReadVersionInfo, UpdateInfo } from '~/doc/wire.ts';
 
 /** A small Standard Schema: `check` gives the value, or a message saying what is wrong. */
 export function schema<T>(
@@ -49,6 +50,37 @@ export const updateInfo = schema<UpdateInfo>((value) => {
 
   return { n: value.n as number, part: [part[0], part[1]] as const };
 });
+
+/** What is wrong with a version label, or `null` when it is fine. */
+export function labelProblem(label: unknown): string | null {
+  return typeof label === 'string' && label.length > 0 && label.length <= MAX_LABEL
+    ? null
+    : `a version label must be a string of 1 to ${MAX_LABEL} characters`;
+}
+
+/** The input of `save-version`. */
+export const saveVersionInput = schema<{ label: string }>((value) => {
+  const label = isRecord(value) ? value.label : undefined;
+  const problem = labelProblem(label);
+  return problem ? { problem } : { label: label as string };
+});
+
+/** The info of `read-version`. */
+export const readVersionInfo = schema<ReadVersionInfo>((value) =>
+  isRecord(value) && typeof value.id === 'string' && Number.isSafeInteger(value.n)
+    ? { id: value.id, n: value.n as number }
+    : { problem: 'expected { id, n }' },
+);
+
+/** The detail of a `version-not-found` error. */
+export const versionDetail = schema<{ type: string; id: string; version: string }>((value) =>
+  isRecord(value) &&
+  typeof value.type === 'string' &&
+  typeof value.id === 'string' &&
+  typeof value.version === 'string'
+    ? { type: value.type, id: value.id, version: value.version }
+    : { problem: 'expected { type, id, version }' },
+);
 
 /** The detail of an error about one doc. */
 export const docDetail = schema<{ type: string; id: string }>((value) =>

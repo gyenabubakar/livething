@@ -2,10 +2,21 @@ import { doc, text } from '~/schema.ts';
 import { collaboration } from '~/server/plugin.ts';
 import { taskBoard } from '~/test/task-board.ts';
 import { describe, expectTypeOf, it } from 'vitest';
+import type { CollaborationApi } from '~/server/plugin.ts';
 
 const meetingNotes = doc('meeting-notes', { body: text() });
 
+declare const api: CollaborationApi<readonly [typeof taskBoard, typeof meetingNotes]>;
+
 describe('collaboration() types', () => {
+  it('types a version by its doc type', async () => {
+    const notes = api.doc('meeting-notes', 'standup');
+
+    expectTypeOf((await notes.versions.read('v1')).body).toEqualTypeOf<string>();
+    // @ts-expect-error a meeting note has no title
+    void (await notes.versions.read('v1')).title;
+  });
+
   it('narrows the onSave state and the access doc by the doc type', () => {
     collaboration({
       docs: [taskBoard, meetingNotes],

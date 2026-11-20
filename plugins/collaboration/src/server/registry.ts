@@ -1,4 +1,5 @@
 import { ChangeOrigin, DocCore } from '~/doc/core.ts';
+import { restoreFrom } from '~/doc/restore.ts';
 import { applyChecked } from '~/server/check.ts';
 import * as Y from 'yjs';
 import type { CollaborationStorage, DocRef } from '~/doc/storage.ts';
@@ -108,6 +109,23 @@ export class DocRegistry {
 
   /** Edit a doc on the server. Every member gets the change. */
   change<R>(ref: DocRef, mutate: (draft: Draft<DocDef['shape']>) => R): Promise<R> {
+    return this.edit(ref, () => mutate);
+  }
+
+  /** Make a doc hold what `version` holds, in one change. Every member gets it. */
+  restore(ref: DocRef, version: Y.Doc): Promise<void> {
+    return this.edit(ref, (core) => () => restoreFrom(core.ydoc, version, core.def));
+  }
+
+  /** The whole doc as one update. */
+  state(ref: DocRef): Promise<Uint8Array> {
+    return this.with(ref, (doc) => Y.encodeStateAsUpdate(doc.core.ydoc));
+  }
+
+  private edit<R>(
+    ref: DocRef,
+    mutateOf: (core: DocCore) => (draft: Draft<DocDef['shape']>) => R,
+  ): Promise<R> {
     return this.with(ref, async (doc) => {
       const origin = new ChangeOrigin();
       let made: Uint8Array | null = null;
@@ -118,7 +136,7 @@ export class DocRegistry {
       doc.core.ydoc.on('update', capture);
       let result: R;
       try {
-        result = doc.core.change(mutate, origin);
+        result = doc.core.change(mutateOf(doc.core), origin);
       } finally {
         doc.core.ydoc.off('update', capture);
       }

@@ -47,6 +47,13 @@ describe('the client plugin types', () => {
     board.bindText(input, (p) => p.tasks[0]?.done);
   });
 
+  it('types a version by its doc type', async () => {
+    const notes = collab.doc('meeting-notes', 'standup');
+
+    expectTypeOf((await notes.versions.read('v1')).body).toEqualTypeOf<string>();
+    expectTypeOf((await notes.versions.list())[0]!.author).toEqualTypeOf<string | null>();
+  });
+
   it('gives a plugin factory with use()', () => {
     expectTypeOf(HuddleCollaboration.use).toBeFunction();
   });

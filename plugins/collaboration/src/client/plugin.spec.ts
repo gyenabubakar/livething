@@ -410,6 +410,96 @@ describe('collaboration() on the client', () => {
     });
   });
 
+  describe('versions', () => {
+    it('saves a version with the edits it just made, lists it, and reads it', async () => {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      await amara.open();
+
+      amara.change((d) => {
+        d.title = 'Launch plan';
+      });
+      const saved = await amara.versions.save('Plan');
+      amara.change((d) => {
+        d.title = 'Something else';
+      });
+
+      expect(saved).toEqual({
+        id: expect.any(String),
+        label: 'Plan',
+        createdAt: expect.any(Number),
+        author: 'u_amara',
+      });
+      expect(await amara.versions.list()).toEqual([saved]);
+      expect((await amara.versions.read(saved.id)).title).toBe('Launch plan');
+    });
+
+    it('restores a version as one change: it reaches the others, and undo takes it back', async () => {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      const kofi = huddleClient(network, 'u_kofi').collab.doc('task-board', 'launch');
+      await amara.open();
+      await kofi.open();
+
+      const saved = await amara.versions.save('Before the review');
+
+      kofi.change((d) => {
+        d.title = 'Reviewed';
+        d.tasks.delete(0, 1);
+      });
+      await until(() => amara.state.get().title === 'Reviewed');
+      await amara.versions.restore(saved.id);
+
+      expect(amara.state.get()).toMatchObject({
+        title: 'Launch',
+        tasks: [{ id: 't1' }, { id: 't2' }],
+      });
+      await until(() => kofi.state.get().title === 'Launch');
+      expect(kofi.state.get().tasks.map((t) => t.id)).toEqual(['t1', 't2']);
+
+      amara.history.undo();
+      await until(() => kofi.state.get().title === 'Reviewed');
+      expect(kofi.state.get().tasks.map((t) => t.id)).toEqual(['t2']);
+    });
+
+    it('reads a version bigger than 256 KiB, sent in parts', async () => {
+      const { network, api } = await huddle();
+      const launch = api().doc('task-board', 'launch');
+      const title = 'x'.repeat(300 * 1024);
+      await launch.change((d) => {
+        d.title = title;
+      });
+      const saved = await launch.versions.save('Long title');
+
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      await amara.open();
+
+      expect((await amara.versions.read(saved.id)).title).toBe(title);
+    });
+
+    it('lets a viewer list and read versions, but not save or restore one', async () => {
+      const { network, api } = await huddle();
+      const saved = await api().doc('task-board', 'launch').versions.save('Kickoff');
+      const guest = huddleClient(network, 'u_guest').collab.doc('task-board', 'launch');
+      await guest.open();
+
+      expect(await guest.versions.list()).toEqual([saved]);
+      expect((await guest.versions.read(saved.id)).title).toBe('Launch');
+      await expect(guest.versions.save('Mine')).rejects.toMatchObject({ code: 'access-denied' });
+      await expect(guest.versions.restore(saved.id)).rejects.toMatchObject({ code: 'read-only' });
+    });
+
+    it('rejects a version ID the doc does not have', async () => {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      await amara.open();
+
+      await expect(amara.versions.read('v_none')).rejects.toMatchObject({
+        code: 'version-not-found',
+      });
+    });
+  });
+
   describe('offline', () => {
     it('keeps changes made offline and sends them when the network is back', async () => {
       const { network, api } = await huddle();

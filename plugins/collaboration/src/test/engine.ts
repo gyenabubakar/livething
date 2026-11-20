@@ -209,6 +209,14 @@ export async function connect(engine: Engine, userId: string, socketKey: unknown
 
   await settle();
 
+  function answerTo(exchange: string) {
+    return sent.find(
+      (frame) =>
+        frame.event !== '__error__' &&
+        (frame.metadata?.exchange as { id?: string } | undefined)?.id === exchange,
+    );
+  }
+
   async function binary(
     envelope: [event: string, info: unknown, metadata: unknown],
     bytes: Uint8Array,
@@ -247,9 +255,23 @@ export async function connect(engine: Engine, userId: string, socketKey: unknown
       exchanges += 1;
       const exchange = `sync-${exchanges}`;
       await binary(['sync', null, routing(id, exchange)], vector);
-      return sent.find(
-        (frame) => (frame.metadata?.exchange as { id?: string } | undefined)?.id === exchange,
-      );
+      return answerTo(exchange);
+    },
+    /** Send a JSON request on a doc's room, and give the answer, if one came. */
+    async request(id: string, event: string, payload: unknown) {
+      exchanges += 1;
+      const exchange = `request-${exchanges}`;
+      await handle.handleMessage(JSON.stringify([PREFIX + event, payload, routing(id, exchange)]));
+      await settle();
+
+      return answerTo(exchange);
+    },
+    /** Send a binary request with no bytes on a doc's room, and give the answer, if one came. */
+    async binaryRequest(id: string, event: string, info: unknown) {
+      exchanges += 1;
+      const exchange = `binary-${exchanges}`;
+      await binary([event, info, routing(id, exchange)], new Uint8Array(0));
+      return answerTo(exchange);
     },
     update: (id: string, info: unknown, bytes: Uint8Array) =>
       binary(['update', info, routing(id)], bytes),

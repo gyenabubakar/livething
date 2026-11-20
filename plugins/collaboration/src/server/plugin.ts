@@ -7,29 +7,44 @@ import { clientRequests } from '@livething/server/client-requests';
 import { error } from '@livething/server/errors';
 import { plugin } from '@livething/server/plugins';
 import { tags } from '@livething/server/tags';
+import { DocCore } from '~/doc/core.ts';
 import { eachPart, joinBytes } from '~/doc/parts.ts';
 import { FAMILY, MAX_PARTS, PLUGIN_ID, ROOM_TEMPLATE, roomName } from '~/doc/wire.ts';
 import { checkAwareness, wireAwareness } from '~/server/awareness.ts';
 import { DocRegistry } from '~/server/registry.ts';
-import { docDetail, nothing, schema, updateInfo } from '~/server/schemas.ts';
+import {
+  docDetail,
+  labelProblem,
+  nothing,
+  readVersionInfo,
+  saveVersionInput,
+  schema,
+  updateInfo,
+  versionDetail,
+} from '~/server/schemas.ts';
 import { sqlStorage } from '~/server/storage.ts';
 import * as Y from 'yjs';
 import type { ConnectionlessContext } from '@livething/server';
-import type { CollaborationStorage, DocRef } from '~/doc/storage.ts';
+import type { DocRef } from '~/doc/storage.ts';
 import type {
   Access,
   RefusedInfo,
   ServerUpdateInfo,
   SyncInfo,
   UpdateInfo,
+  VersionInfo,
+  VersionPartInfo,
   WireAwareness,
 } from '~/doc/wire.ts';
 import type { DocDef, DocNamed, Draft, Snapshot } from '~/schema.ts';
+import type { ServerStorage } from '~/server/storage.ts';
 
 /** The doc type is not one the server serves. */
 const DocNotFound = error('doc-not-found', docDetail);
 /** `access` refused the client. */
 const AccessDenied = error('access-denied', docDetail);
+/** The doc has no version with that ID. */
+const VersionNotFound = error('version-not-found', versionDetail);
 /** A message the client sent is not one the plugin can read. */
 const InvalidMessage = error(
   'invalid-message',
@@ -84,8 +99,8 @@ export interface CollaborationOptions<TDocs extends readonly DocDef[]> {
   onSave?(ctx: SaveContext, event: SaveEvent<TDocs>): void | Promise<void>;
   /** How long a doc must stay unchanged before `onSave` runs, in ms. Default 2000. */
   readonly saveDelayMs?: number;
-  /** Where docs are kept. Default: a table in the server's own SQL storage. */
-  readonly storage?: CollaborationStorage;
+  /** Where docs and their versions are kept. Default: tables in the server's own SQL storage. */
+  readonly storage?: ServerStorage;
 }
 
 /** One doc on the server, for server and admin code. */
@@ -94,6 +109,19 @@ export interface ServerDoc<D extends DocDef> {
   read(): Promise<Snapshot<D['shape']>>;
   /** Edit the doc. Every client that has it open gets the change. */
   change<R>(mutate: (draft: Draft<D['shape']>) => R): Promise<R>;
+  readonly versions: ServerVersions<D>;
+}
+
+/** A doc's saved versions, for server and admin code. */
+export interface ServerVersions<D extends DocDef> {
+  /** Save the doc as it is now. `author` is the user shown as the one who saved it. Default `null`. */
+  save(label: string, options?: { readonly author?: string | null }): Promise<VersionInfo>;
+  /** The doc's versions, newest first. */
+  list(): Promise<readonly VersionInfo[]>;
+  /** One version's content. */
+  read(id: string): Promise<Snapshot<D['shape']>>;
+  /** Make the doc hold what a version holds, in one change. Every client that has it open gets it. */
+  restore(id: string): Promise<void>;
 }
 
 const REGISTRY = Symbol('livething.collaboration.registry');
@@ -208,10 +236,52 @@ interface AccessTagsContext {
   readonly tags: { ephemeral(group: 'access'): { has(key: AccessTag): boolean } };
 }
 
-/** What a running server keeps for the plugin: its loaded docs and the parts in flight. */
+/** What a running server keeps for the plugin: its loaded docs, the parts in flight, and versions. */
 interface PluginState {
   readonly registry: DocRegistry;
   readonly parts: Parts;
+  readonly versions: Versions;
+}
+
+/** Saving and reading versions, for the handlers and the server API. */
+interface Versions {
+  save(doc: DocRef, label: string, author: string | null): Promise<VersionInfo>;
+  list(doc: DocRef): Promise<readonly VersionInfo[]>;
+  /** A version's state: one update that holds the whole doc as it was. */
+  state(doc: DocRef, id: string): Promise<Uint8Array>;
+}
+
+function versionsOf(registry: DocRegistry, storage: ServerStorage): Versions {
+  return {
+    async save(doc, label, author) {
+      const version: VersionInfo = {
+        id: crypto.randomUUID(),
+        label,
+        createdAt: Date.now(),
+        author,
+      };
+
+      await storage.saveVersion(doc, version, await registry.state(doc));
+
+      return version;
+    },
+    async list(doc) {
+      return storage.listVersions(doc);
+    },
+    async state(doc, id) {
+      const state = await storage.readVersion(doc, id);
+      if (!state) throw VersionNotFound({ type: doc.type, id: doc.id, version: id });
+
+      return state;
+    },
+  };
+}
+
+/** A version's state as a Y.Doc. */
+function versionDoc(state: Uint8Array): Y.Doc {
+  const ydoc = new Y.Doc();
+  Y.applyUpdate(ydoc, state);
+  return ydoc;
 }
 
 /**
@@ -259,7 +329,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
       clientRequests(),
       binary(),
       tags((ephemeral) => [ephemeral('access', t<AccessTag>())]),
-      errors([DocNotFound, AccessDenied, InvalidMessage]),
+      errors([DocNotFound, AccessDenied, VersionNotFound, InvalidMessage]),
     ],
   });
 
@@ -288,6 +358,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
           update: t<ServerUpdateInfo>(),
           ack: t<{ n: number }>(),
           refused: t<RefusedInfo>(),
+          version: t<VersionPartInfo>(),
         },
       }),
     ],
@@ -413,45 +484,116 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
     },
   });
 
+  /** The doc of the handler's room, after checking the client holds `needs` (or any) access. */
+  function docOf(ctx: AccessTagsContext & { channel: { params: DocRef } }, needs?: Access) {
+    const { type, id } = ctx.channel.params;
+    const access = accessOf(ctx, roomName(type, id));
+    if (!access || (needs && access !== needs)) throw AccessDenied({ type, id });
+
+    return { type, id };
+  }
+
+  const handleSaveVersion = docs.request('save-version', {
+    input: saveVersionInput,
+    run: (ctx, input) =>
+      stateOf(ctx).versions.save(docOf(ctx, 'edit'), input.label, ctx.user.id ?? null),
+  });
+
+  const handleListVersions = docs.request('list-versions', {
+    input: nothing,
+    run: async (ctx) => ({ versions: await stateOf(ctx).versions.list(docOf(ctx)) }),
+  });
+
+  const handleReadVersion = docs.binary.request('read-version', {
+    input: readVersionInfo,
+    async run(ctx, info) {
+      const state = await stateOf(ctx).versions.state(docOf(ctx), info.id);
+      // A version may be too big for one message, so it goes before the answer.
+      eachPart(state, (bytes, part) =>
+        ctx.channel.binary.send('version', bytes, {
+          info: part ? { n: info.n, part } : { n: info.n },
+        }),
+      );
+
+      return { info: null, bytes: new Uint8Array(0) };
+    },
+  });
+
   const definition = collaborationServer.assemble({
-    handlers: [docs, handleSync, handleUpdate],
+    handlers: [
+      docs,
+      handleSync,
+      handleUpdate,
+      handleSaveVersion,
+      handleListVersions,
+      handleReadVersion,
+    ],
     api: (ctx) => {
       function room(doc: DocRef) {
         return ctx.channels.get(FAMILY, roomName(doc.type, doc.id));
       }
 
+      const storage = options.storage ?? sqlStorage(ctx.sql);
+      const registry = new DocRegistry({
+        defs,
+        storage,
+        saveDelayMs,
+        broadcast: (doc, update) =>
+          sendInParts(update, (piece, part) =>
+            room(doc).binary.broadcast('update', piece, { info: part }),
+          ),
+        members: (doc) => room(doc).memberCount(),
+        ...(options.onSave
+          ? {
+              onSave: (doc: DocRef, saved: unknown) =>
+                options.onSave!({ log: ctx.log, platform: ctx.platform }, {
+                  type: doc.type,
+                  id: doc.id,
+                  state: saved,
+                } as SaveEvent<TDocs>),
+            }
+          : {}),
+        reportError: (message, cause) =>
+          ctx.log.error(`[livething] collaboration: ${message}`, errorData(cause)),
+      });
       const state: PluginState = {
         parts: new Parts(),
-        registry: new DocRegistry({
-          defs,
-          storage: options.storage ?? sqlStorage(ctx.sql),
-          saveDelayMs,
-          broadcast: (doc, update) =>
-            sendInParts(update, (piece, part) =>
-              room(doc).binary.broadcast('update', piece, { info: part }),
-            ),
-          members: (doc) => room(doc).memberCount(),
-          ...(options.onSave
-            ? {
-                onSave: (doc: DocRef, saved: unknown) =>
-                  options.onSave!({ log: ctx.log, platform: ctx.platform }, {
-                    type: doc.type,
-                    id: doc.id,
-                    state: saved,
-                  } as SaveEvent<TDocs>),
-              }
-            : {}),
-          reportError: (message, cause) =>
-            ctx.log.error(`[livething] collaboration: ${message}`, errorData(cause)),
-        }),
+        registry,
+        versions: versionsOf(registry, storage),
       };
 
       const api: CollaborationApi<TDocs> = {
         doc(type, id) {
           const ref = checkRef(defs, type, id);
+          const versions: ServerVersions<DocDef> = {
+            async save(label, saveOptions) {
+              const problem = labelProblem(label);
+              if (problem) throw new LiveThingConfigError(`collaboration: ${problem}`);
+
+              return state.versions.save(ref, label, saveOptions?.author ?? null);
+            },
+            list: () => state.versions.list(ref),
+            async read(versionId) {
+              const core = new DocCore(
+                defs.get(ref.type)!,
+                versionDoc(await state.versions.state(ref, versionId)),
+              );
+              try {
+                return core.read();
+              } finally {
+                core.destroy();
+              }
+            },
+            async restore(versionId) {
+              const version = versionDoc(await state.versions.state(ref, versionId));
+              await registry.restore(ref, version);
+            },
+          };
+
           return {
-            read: () => state.registry.read(ref),
-            change: (mutate) => state.registry.change(ref, mutate as never),
+            read: () => registry.read(ref),
+            change: (mutate) => registry.change(ref, mutate as never),
+            versions,
           } as ServerDoc<DocNamed<TDocs, typeof type>>;
         },
       };

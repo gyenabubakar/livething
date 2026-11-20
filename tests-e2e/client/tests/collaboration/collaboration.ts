@@ -44,6 +44,8 @@ export function setup(): void {
     <button data-testid="unlock-first">unlock-first</button>
     <button data-testid="anchor-first">anchor-first</button>
     <button data-testid="server-drop">server-drop</button>
+    <button data-testid="save-version">save-version</button>
+    <button data-testid="restore-oldest-version">restore-oldest-version</button>
     <span data-testid="connection"></span>
     <span data-testid="status"></span>
     <span data-testid="access"></span>
@@ -58,6 +60,8 @@ export function setup(): void {
     <span data-testid="locks"></span>
     <span data-testid="lock-result"></span>
     <span data-testid="anchor"></span>
+    <span data-testid="versions"></span>
+    <span data-testid="version-title"></span>
   `);
 
   const page = new URLSearchParams(location.search);
@@ -210,6 +214,32 @@ export function setup(): void {
   });
   button('server-drop', () => {
     socket.send('server-drop', {});
+  });
+
+  async function showVersions(): Promise<void> {
+    const versions = await board.versions.list();
+    el('versions').textContent = versions.map((v) => `${v.label}=${v.author ?? ''}`).join(',');
+  }
+
+  button('save-version', async () => {
+    try {
+      await board.versions.save(`Saved as ${board.state.get().title}`);
+      await showVersions();
+    } catch (error) {
+      append('errors', errorCode(error));
+    }
+  });
+  button('restore-oldest-version', async () => {
+    try {
+      const versions = await board.versions.list();
+      const oldest = versions.at(-1);
+      if (!oldest) return;
+
+      el('version-title').textContent = (await board.versions.read(oldest.id)).title;
+      await board.versions.restore(oldest.id);
+    } catch (error) {
+      append('errors', errorCode(error));
+    }
   });
 
   ready();
