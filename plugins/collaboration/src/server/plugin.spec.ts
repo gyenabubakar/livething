@@ -6,7 +6,7 @@ import { open, task, taskBoard } from '~/test/task-board.ts';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import type { Engine } from '@livething/server/adapters';
-import type { CollaborationStorage } from '~/server/storage.ts';
+import type { CollaborationStorage } from '~/doc/storage.ts';
 
 /** A client with its own copy of the board, in sync with the server. */
 async function member(engine: Engine, userId: string, id = 'launch') {
@@ -595,6 +595,15 @@ describe('collaboration() on the server', () => {
       await guest.aware('launch', state());
 
       expect(guest.errors().map((error) => error.code)).toEqual(['awareness-refused']);
+    });
+
+    it('takes a state whose app part is null: a member that set none yet', async () => {
+      const { engine } = await startServer();
+      const amara = await member(engine, 'u_amara');
+
+      await amara.aware('launch', state(['task:t1'], null));
+
+      expect(amara.errors()).toEqual([]);
     });
 
     it('takes a state with a 32-lock list', async () => {

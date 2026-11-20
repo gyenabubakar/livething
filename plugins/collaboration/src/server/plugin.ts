@@ -7,13 +7,15 @@ import { clientRequests } from '@livething/server/client-requests';
 import { error } from '@livething/server/errors';
 import { plugin } from '@livething/server/plugins';
 import { tags } from '@livething/server/tags';
-import { FAMILY, MAX_PARTS, PART_BYTES, PLUGIN_ID, ROOM_TEMPLATE, roomName } from '~/doc/wire.ts';
+import { eachPart, joinBytes } from '~/doc/parts.ts';
+import { FAMILY, MAX_PARTS, PLUGIN_ID, ROOM_TEMPLATE, roomName } from '~/doc/wire.ts';
 import { checkAwareness, wireAwareness } from '~/server/awareness.ts';
 import { DocRegistry } from '~/server/registry.ts';
 import { docDetail, nothing, schema, updateInfo } from '~/server/schemas.ts';
 import { sqlStorage } from '~/server/storage.ts';
 import * as Y from 'yjs';
 import type { ConnectionlessContext } from '@livething/server';
+import type { CollaborationStorage, DocRef } from '~/doc/storage.ts';
 import type {
   Access,
   RefusedInfo,
@@ -22,14 +24,7 @@ import type {
   UpdateInfo,
   WireAwareness,
 } from '~/doc/wire.ts';
-import type { DocDef, Draft, Snapshot } from '~/schema.ts';
-import type { CollaborationStorage, DocRef } from '~/server/storage.ts';
-
-/** The doc type named `N` in `TDocs`. */
-type DocNamed<TDocs extends readonly DocDef[], N extends string> = Extract<
-  TDocs[number],
-  { name: N }
->;
+import type { DocDef, DocNamed, Draft, Snapshot } from '~/schema.ts';
 
 /** The doc type is not one the server serves. */
 const DocNotFound = error('doc-not-found', docDetail);
@@ -187,7 +182,7 @@ class Parts {
 
     this.drop(sender);
 
-    return Y.mergeUpdates([joinPieces(pending.pieces)]);
+    return Y.mergeUpdates([joinBytes(pending.pieces)]);
   }
 
   drop(sender: Sender): void {
@@ -197,38 +192,20 @@ class Parts {
   }
 }
 
-/** Send `update` as one message, or in parts of at most `PART_BYTES`, one after another. */
+/** Send `update` as one message, or in parts, one after another. */
 function sendInParts(
   update: Uint8Array,
   send: (bytes: Uint8Array, info: ServerUpdateInfo) => void,
 ): void {
-  const count = Math.ceil(update.length / PART_BYTES);
-  if (count <= 1) {
-    send(update, null);
-    return;
-  }
-
-  for (let index = 0; index < count; index += 1) {
-    send(update.subarray(index * PART_BYTES, (index + 1) * PART_BYTES), { part: [index, count] });
-  }
+  eachPart(update, (bytes, part) => send(bytes, part ? { part } : null));
 }
 
-function joinPieces(pieces: readonly Uint8Array[]): Uint8Array {
-  if (pieces.length === 1) return pieces[0]!;
-
-  const out = new Uint8Array(pieces.reduce((size, piece) => size + piece.length, 0));
-  let at = 0;
-  for (const piece of pieces) {
-    out.set(piece, at);
-    at += piece.length;
-  }
-
-  return out;
-}
+/** One `access` tag: the access a connection holds to one doc's room, as `edit:task-board:launch`. */
+type AccessTag = `${Access}:${string}`;
 
 /** A handler context's `access` tags, to read which access a connection holds. */
 interface AccessTagsContext {
-  readonly tags: { ephemeral(group: 'access'): { has(key: string): boolean } };
+  readonly tags: { ephemeral(group: 'access'): { has(key: AccessTag): boolean } };
 }
 
 /** What a running server keeps for the plugin: its loaded docs and the parts in flight. */
@@ -281,7 +258,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
       channels(),
       clientRequests(),
       binary(),
-      tags((ephemeral) => [ephemeral('access')]),
+      tags((ephemeral) => [ephemeral('access', t<AccessTag>())]),
       errors([DocNotFound, AccessDenied, InvalidMessage]),
     ],
   });
@@ -292,7 +269,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
     return api[REGISTRY]!;
   }
 
-  function accessKey(access: Access, room: string): string {
+  function accessKey(access: Access, room: string): AccessTag {
     return `${access}:${room}`;
   }
 

@@ -63,6 +63,12 @@ export interface UpdateInfo {
 /** The info of the server's `update`: `null`, or which part this is. */
 export type ServerUpdateInfo = { readonly part: Part } | null;
 
+/**
+ * The reason of a refusal for an update that starts past what the server has, as when an
+ * earlier update was lost. The client then syncs again, which sends all the server lacks.
+ */
+export const OUT_OF_ORDER = 'the update needs earlier updates the server does not have';
+
 /** The info of a `refused` message. */
 export interface RefusedInfo {
   readonly n: number;

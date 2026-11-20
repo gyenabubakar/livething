@@ -19,6 +19,7 @@ export default defineConfig({
     lib: {
       entry: {
         index: resolve(__dirname, 'src/index.ts'),
+        client: resolve(__dirname, 'src/client/index.ts'),
         server: resolve(__dirname, 'src/server/index.ts'),
       },
       formats: ['es'],
@@ -28,7 +29,13 @@ export default defineConfig({
     rollupOptions: {
       // Peers and dependencies the app installs. Bundling yjs twice breaks it: Yjs
       // checks types with `instanceof`, so every package must share one copy.
-      external: [/^@livething\//, /^@standard-schema\//, /^yjs(?:\/.*)?$/, /^fast-diff$/],
+      external: [
+        /^@livething\//,
+        /^@standard-schema\//,
+        /^yjs(?:\/.*)?$/,
+        /^y-protocols(?:\/.*)?$/,
+        /^fast-diff$/,
+      ],
     },
   },
 });

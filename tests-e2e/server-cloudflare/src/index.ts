@@ -57,6 +57,7 @@ export { InboxDynamicServer } from './inbox-dynamic.ts';
 export { InboxRetentionServer } from './inbox-retention.ts';
 export { ReceiptsServer } from './receipts.ts';
 export { AwarenessHibernationServer, AwarenessServer } from './awareness.ts';
+export { CollaborationHibernationServer, CollaborationServer } from './collaboration.ts';
 export { InboxGapServer } from './inbox-gap.ts';
 export { InboxHandleServer } from './inbox-handle.ts';
 export { LastSeenServer } from './last-seen.ts';
@@ -237,6 +238,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/inbox-retention': 'INBOX_RETENTION_SERVER',
   '/ws/receipts': 'RECEIPTS_SERVER',
   '/ws/awareness': 'AWARENESS_SERVER',
+  '/ws/collaboration': 'COLLABORATION_SERVER',
   '/ws/inbox-gap': 'INBOX_GAP_SERVER',
   '/ws/inbox-handle': 'INBOX_HANDLE_SERVER',
   '/ws/last-seen': 'LAST_SEEN_SERVER',

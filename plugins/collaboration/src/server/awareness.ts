@@ -87,7 +87,8 @@ export function checkAwareness(input: AwarenessCheckInput): boolean {
   const { def, canEdit, state, previous, others } = input;
   if (!def) return false;
 
-  if (def.awareness) {
+  // `null` is a member that has set no app state yet.
+  if (def.awareness && state.user !== null) {
     const result = def.awareness['~standard'].validate(state.user);
     if (result instanceof Promise) {
       result.catch(() => {});

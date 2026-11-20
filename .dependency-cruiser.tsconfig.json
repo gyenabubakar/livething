@@ -3,7 +3,7 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "~/*": ["./server/src/*", "./client/src/*"]
+      "~/*": ["./server/src/*", "./client/src/*", "./plugins/collaboration/src/*"]
     }
   }
 }

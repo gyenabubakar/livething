@@ -1,9 +1,10 @@
 import { DocRegistry } from '~/server/registry.ts';
+import { cycleUpdate, forwardUpdate } from '~/test/raw-update.ts';
 import { open, taskBoard } from '~/test/task-board.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
+import type { CollaborationStorage } from '~/doc/storage.ts';
 import type { RegistryOptions } from '~/server/registry.ts';
-import type { CollaborationStorage } from '~/server/storage.ts';
 
 const launch = { type: 'task-board', id: 'launch' };
 
@@ -48,6 +49,35 @@ function setup(members: () => number = () => 0) {
 
   return { registry: new DocRegistry(options), state, errors, storedTitle };
 }
+
+describe('DocRegistry loading', () => {
+  it.each([
+    ['one that throws in Yjs', forwardUpdate(777, 'title')],
+    ['one Yjs holds back', cycleUpdate()],
+  ])('loads a doc whose stored log has a broken update (%s), and reports it', async (_, broken) => {
+    const good = new Y.Doc();
+    good.getText('title').insert(0, 'Launch');
+    const stored = [Y.encodeStateAsUpdate(good), broken];
+    const errors: string[] = [];
+    const registry = new DocRegistry({
+      defs: new Map([[taskBoard.name, taskBoard]]),
+      storage: { load: () => stored, append() {}, compact() {} },
+      broadcast: () => {},
+      members: () => 1,
+      saveDelayMs: 10,
+      reportError: (message) => errors.push(message),
+    });
+
+    const snapshot = await registry.read(launch);
+
+    // The doc opens with what applied; the server no longer stores such updates.
+    expect((snapshot as { title: string }).title).toContain('Launch');
+    expect(errors).toHaveLength(1);
+    await registry.with(launch, (doc) => {
+      expect(doc.core.ydoc.store.pendingStructs).toBeNull();
+    });
+  });
+});
 
 describe('DocRegistry', () => {
   beforeEach(() => {

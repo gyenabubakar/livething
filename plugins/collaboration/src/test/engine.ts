@@ -11,7 +11,7 @@ import { channels } from '@livething/server/channels';
 import { PLUGIN_ID } from '~/doc/wire.ts';
 import { collaboration } from '~/server/plugin.ts';
 import { taskBoard } from '~/test/task-board.ts';
-import type { SQLProvider, SqlResult } from '@livething/server';
+import type { InferClient, SQLProvider, SqlResult } from '@livething/server';
 import type { Engine, KVProvider, TransportFrame } from '@livething/server/adapters';
 import type { CollaborationApi, CollaborationOptions, DocAccess } from '~/server/plugin.ts';
 
@@ -94,20 +94,30 @@ export interface HarnessOptions extends Partial<CollaborationOptions<Docs>> {
 /** Every user can edit, except a guest, who views, and an outsider, who is refused. */
 const ACCESS: Record<string, DocAccess> = { u_guest: 'view', u_out: false };
 
-/** A running server with the Collaboration plugin for Huddle's task board. */
-export async function startServer(options: HarnessOptions = {}) {
-  const { hibernation, sql = testSql(), sendBytes, ...pluginOptions } = options;
+/** Huddle's server definition: channels and the Collaboration plugin. */
+function huddleDefinition(options: Omit<HarnessOptions, 'sql' | 'sendBytes'>) {
+  const { hibernation, ...pluginOptions } = options;
   const Collaboration = collaboration({
     docs,
     access: (ctx) => ACCESS[ctx.user.id ?? ''] ?? 'edit',
     saveDelayMs: 10,
     ...pluginOptions,
   });
-  const definition = server({
+
+  return server({
     authenticate: () => ({}),
     ...(hibernation ? { hibernation: true } : {}),
     capabilities: [channels(), Collaboration()],
   }).assemble({ handlers: [] });
+}
+
+/** What a Huddle client may use. */
+export type HuddleClient = InferClient<ReturnType<typeof huddleDefinition>>;
+
+/** A running server with the Collaboration plugin for Huddle's task board. */
+export async function startServer(options: HarnessOptions = {}) {
+  const { hibernation, sql = testSql(), sendBytes } = options;
+  const definition = huddleDefinition(options);
 
   const logged: unknown[][] = [];
   let engine!: Engine;

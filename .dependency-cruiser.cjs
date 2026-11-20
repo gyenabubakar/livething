@@ -131,6 +131,35 @@ module.exports = {
         dependencyTypesNot: ['type-only'],
       },
     },
+    {
+      name: 'collaboration-doc-shared',
+      comment:
+        "The Collaboration plugin's `doc/` code runs on both the client and the server, so it " +
+        'must not import either side. Move what both need into `doc/`.',
+      severity: 'error',
+      from: { path: '^plugins/collaboration/src/doc/' },
+      to: {
+        path: '^plugins/collaboration/src/(client|server)/',
+        dependencyTypesNot: ['type-only'],
+      },
+    },
+    {
+      name: 'collaboration-sides-apart',
+      comment:
+        "The Collaboration plugin's client code must not value-import its server code, nor the " +
+        'server its client code: each entry would ship the other side. Share it through `doc/`, ' +
+        'or keep the edge `import type` only (the client infers its wire contract type from the server plugin).',
+      severity: 'error',
+      from: {
+        path: '^plugins/collaboration/src/(client|server)/',
+        pathNot: '^plugins/collaboration/src/test/',
+      },
+      to: {
+        path: '^plugins/collaboration/src/(client|server)/',
+        pathNot: '^plugins/collaboration/src/$1/',
+        dependencyTypesNot: ['type-only'],
+      },
+    },
   ],
   options: {
     doNotFollow: {

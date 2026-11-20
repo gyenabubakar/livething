@@ -10,4 +10,3 @@ export type {
   SaveEvent,
   ServerDoc,
 } from '~/server/plugin.ts';
-export type { CollaborationStorage, DocRef } from '~/server/storage.ts';

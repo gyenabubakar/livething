@@ -1,9 +1,9 @@
 import { ChangeOrigin, DocCore } from '~/doc/core.ts';
 import { applyChecked } from '~/server/check.ts';
 import * as Y from 'yjs';
+import type { CollaborationStorage, DocRef } from '~/doc/storage.ts';
 import type { DocDef, Draft, Snapshot } from '~/schema.ts';
 import type { CheckResult } from '~/server/check.ts';
-import type { CollaborationStorage, DocRef } from '~/server/storage.ts';
 
 /** Compact a doc's stored updates into one after this many appends. */
 const COMPACT_AFTER_UPDATES = 200;
@@ -214,7 +214,24 @@ export class DocRegistry {
 
     const updates = await this.options.storage.load(ref);
     const ydoc = new Y.Doc();
-    for (const update of updates) Y.applyUpdate(ydoc, update);
+    // A stored update that does not apply (written by another version, or broken) must not
+    // stop the doc from opening: report it, and load the rest.
+    for (const update of updates) {
+      try {
+        Y.applyUpdate(ydoc, update);
+      } catch (error) {
+        this.options.reportError(`a stored update of '${keyOf(ref)}' does not apply`, error);
+      }
+    }
+
+    if (ydoc.store.pendingStructs || ydoc.store.pendingDs) {
+      ydoc.store.pendingStructs = null;
+      ydoc.store.pendingDs = null;
+      this.options.reportError(
+        `stored updates of '${keyOf(ref)}' point at items it does not have`,
+        null,
+      );
+    }
 
     return {
       ref,

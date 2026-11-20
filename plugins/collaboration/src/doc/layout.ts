@@ -82,7 +82,7 @@ export type RootSlot =
   | { readonly kind: 'field'; readonly field: Field };
 
 /** Every root type of a doc, by name, with what it holds. */
-export function rootSlots(shape: Shape, path: string[] = [], out = new Map<string, RootSlot>()) {
+function rootSlots(shape: Shape, path: string[] = [], out = new Map<string, RootSlot>()) {
   out.set(valuesName(path), { kind: 'values', shape });
   for (const [key, field] of Object.entries(shape)) {
     const at = [...path, key];

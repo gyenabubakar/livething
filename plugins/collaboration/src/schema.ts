@@ -392,6 +392,12 @@ export type DocsByName<TDocs extends readonly DocDef[]> = {
   [D in TDocs[number] as D['name']]: D;
 };
 
+/** The doc type named `N` in `TDocs`. Works for a generic `N`, where `DocsByName` can't. */
+export type DocNamed<TDocs extends readonly DocDef[], N extends string> = Extract<
+  TDocs[number],
+  { name: N }
+>;
+
 /**
  * Marks a value at the top of a doc whose schema gives no default. The property name
  * is the message, because TypeScript prints the name of a missing property.
