@@ -767,12 +767,7 @@ interface TagsCtx<TSlots, TMeta> {
    * return a handle to add, remove, count, and address connections by tag; only
    * groups declared by the `tags(...)` capability are accepted.
    */
-  readonly tags: TagsApi<
-    keyof EphemeralTags<TSlots> & string,
-    keyof PersistentTags<TSlots> & string,
-    TMeta,
-    TSlots
-  >;
+  readonly tags: TagsApi<EphemeralTags<TSlots>, PersistentTags<TSlots>, TMeta, TSlots>;
 }
 
 /** A `ctx.channels.get(...)` handle; gate callbacks get it without `inbox`/`readReceipts`. */
