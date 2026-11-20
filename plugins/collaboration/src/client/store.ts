@@ -4,7 +4,9 @@
  * once. So the existing framework recipes work as they are.
  */
 export interface ReadableStore<T> {
+  /** The value now. */
   get(): T;
+  /** Run `listener` with each new value (not the current one). Returns a function that stops it. */
   subscribe(listener: (value: T) => void): () => void;
 }
 

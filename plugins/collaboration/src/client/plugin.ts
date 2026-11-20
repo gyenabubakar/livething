@@ -29,17 +29,43 @@ export interface CollaborationClientOptions<TDocs extends readonly DocDef[]> {
 
 /** What `HuddleCollaboration.use(socket)` gives. */
 export interface CollaborationClient<TDocs extends readonly DocDef[]> {
-  /** One doc, by type and ID. The same object every time for the same doc. */
+  /**
+   * One doc, by type and ID. The same object every time for the same doc, like
+   * `socket.channel()`. It does nothing on the network until `open()`. A type the app does
+   * not list is a type error.
+   *
+   * @throws {LiveThingConfigError} For an unknown type, or an ID that is empty or too long
+   * (the type, a `:` and the ID are at most 256 characters).
+   */
   doc<N extends TDocs[number]['name']>(type: N, id: string): DocHandle<DocNamed<TDocs, N>>;
 }
 
 /**
- * The Collaboration plugin for the client. List `HuddleCollaboration()` in `client()`, after
- * `channels()`, `binary()`, `awareness()` and `clientRequests()`.
+ * The Collaboration plugin for the client. Returns a plugin factory: list
+ * `HuddleCollaboration()` in `client()`, after `channels()`, `binary()`, `awareness()` and
+ * `clientRequests()`, and get the docs with `HuddleCollaboration.use(socket)`.
+ *
+ * @param options `docs` (the same list the server gets), and the optional `storage`,
+ * `closeDelayMs` and `onError`.
+ * @throws {LiveThingConfigError} When a doc type is listed twice, `docs` is empty, or
+ * `closeDelayMs` is not a whole number of 0 or more.
  *
  * @example
  * ```ts
+ * import { awareness, binary, channels, client, clientRequests, connect } from '@livething/client'
+ * import { collaboration } from '@livething/plugin-collaboration/client'
+ * import { huddleDocs } from '../shared/huddle-docs'
+ *
  * export const HuddleCollaboration = collaboration({ docs: huddleDocs })
+ *
+ * const socket = client<HuddleSocket>()(
+ *   connect('wss://huddle.example.com/huddle'),
+ *   channels(),
+ *   binary(),
+ *   awareness(),
+ *   clientRequests(),
+ *   HuddleCollaboration(),
+ * )
  * const board = HuddleCollaboration.use(socket).doc('task-board', 'launch')
  * await board.open()
  * ```

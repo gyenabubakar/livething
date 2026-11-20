@@ -63,6 +63,7 @@ const MAX_AWARENESS_BYTES = 8 * 1024;
 
 /** Who is opening a doc, for `access`. */
 export interface AccessContext {
+  /** The user `authenticate` gave the connection, or `null` for none. */
   readonly user: { readonly id: string | null };
   /** The connection's `meta`, from the host's `authenticate`. */
   readonly meta: Readonly<Record<string, unknown>>;
@@ -87,40 +88,84 @@ export type SaveEvent<TDocs extends readonly DocDef[]> = {
 /** The parts of the server `onSave` can use: its logger and the adapter's platform object. */
 export type SaveContext = Pick<ConnectionlessContext, 'log' | 'platform'>;
 
+/** The options of the server's {@link collaboration}. */
 export interface CollaborationOptions<TDocs extends readonly DocDef[]> {
   /** Every doc type the app has: the same list the client gets. */
   readonly docs: TDocs;
   /**
-   * Runs when a client opens a doc, and again when it rejoins after a reconnect. Return
-   * `'edit'`, `'view'`, or `false` to refuse.
+   * Who may open a doc. Runs when a client opens a doc, and again when it rejoins after a
+   * reconnect. Return `'edit'`, `'view'` (the client reads the doc, and the server refuses
+   * its changes), or `false` (the client gets `access-denied`). `doc` is typed by the doc
+   * types: `{ type: 'task-board', id: string }`.
    */
   access(ctx: AccessContext, doc: DocOf<TDocs>): DocAccess | Promise<DocAccess>;
-  /** Runs after a doc's changes settle, `saveDelayMs` after the last one. */
+  /**
+   * Runs once a doc's changes settle, `saveDelayMs` after the last one, and when the last
+   * member leaves before that. Use it for work that should follow edits but not run on each
+   * one: a search index, a webhook, a summary. Check `event.type` to narrow `event.state`.
+   * An error it throws is logged.
+   */
   onSave?(ctx: SaveContext, event: SaveEvent<TDocs>): void | Promise<void>;
-  /** How long a doc must stay unchanged before `onSave` runs, in ms. Default 2000. */
+  /**
+   * How long a doc must stay unchanged before `onSave` runs, in ms.
+   * @default 2000
+   */
   readonly saveDelayMs?: number;
-  /** Where docs and their versions are kept. Default: tables in the server's own SQL storage. */
+  /**
+   * Where docs and their versions are kept. Edits are live before they are stored; if a
+   * write fails, the error is logged, and the doc stays loaded until a later write stores
+   * all of it.
+   * @default sqlStorage(ctx.sql): tables in the server's own SQL, on Node and Cloudflare.
+   */
   readonly storage?: ServerStorage;
 }
 
-/** One doc on the server, for server and admin code. */
+/** One doc on the server, from `ctx.plugin('livething:collaboration').doc(type, id)`. */
 export interface ServerDoc<D extends DocDef> {
-  /** The doc's content as a read-only, plain JSON copy. */
+  /** The doc's content as a read-only, plain JSON copy. Loads the doc if it is not loaded. */
   read(): Promise<Snapshot<D['shape']>>;
-  /** Edit the doc. Every client that has it open gets the change. */
+  /**
+   * Edit the doc with the same draft as the client's `change()`. Every client that has it
+   * open gets the change, and it is stored. A change that writes nothing sends nothing.
+   * Resolves with what `mutate` returns.
+   *
+   * @throws `invalid-change` when a value fails its schema; the doc stays as it was.
+   *
+   * @example
+   * ```ts
+   * await collab.doc('task-board', 'launch').change((d) => {
+   *   const task = d.tasks.find((t) => t.id === 't_1042')
+   *   if (task) task.done = true
+   * })
+   * ```
+   */
   change<R>(mutate: (draft: Draft<D['shape']>) => R): Promise<R>;
+  /** The doc's saved versions. */
   readonly versions: ServerVersions<D>;
 }
 
 /** A doc's saved versions, for server and admin code. */
 export interface ServerVersions<D extends DocDef> {
-  /** Save the doc as it is now. `author` is the user shown as the one who saved it. Default `null`. */
+  /**
+   * Save the doc as it is now.
+   *
+   * @param label 1 to 200 characters, such as `'Nightly'`.
+   * @param options `author`: the user shown as the one who saved it. Default `null`.
+   * @throws {LiveThingConfigError} For a label that is empty or too long.
+   */
   save(label: string, options?: { readonly author?: string | null }): Promise<VersionInfo>;
   /** The doc's versions, newest first. */
   list(): Promise<readonly VersionInfo[]>;
-  /** One version's content. */
+  /**
+   * One version's content.
+   * @throws `version-not-found` when the doc has no version with that ID.
+   */
   read(id: string): Promise<Snapshot<D['shape']>>;
-  /** Make the doc hold what a version holds, in one change. Every client that has it open gets it. */
+  /**
+   * Make the doc hold what a version holds, changing only what differs, in one change. Every
+   * client that has it open gets it, and list items that are still there keep their IDs.
+   * @throws `version-not-found` when the doc has no version with that ID.
+   */
   restore(id: string): Promise<void>;
 }
 
@@ -128,7 +173,12 @@ const REGISTRY = Symbol('livething.collaboration.registry');
 
 /** What `ctx.plugin('livething:collaboration')` and `admin.plugin(...)` give. */
 export interface CollaborationApi<TDocs extends readonly DocDef[]> {
-  /** One doc of the app, by type and ID. */
+  /**
+   * One doc of the app, by type and ID, typed by its doc type. Nothing loads until you use it.
+   *
+   * @throws {LiveThingConfigError} For an unknown type, or an ID that is empty or too long
+   * (the type, a `:` and the ID are at most 256 characters).
+   */
   doc<N extends TDocs[number]['name']>(type: N, id: string): ServerDoc<DocNamed<TDocs, N>>;
 }
 
@@ -286,14 +336,27 @@ function versionDoc(state: Uint8Array): Y.Doc {
 
 /**
  * The Collaboration plugin for the server. Returns a plugin factory: list
- * `HuddleCollaboration()` in the host's capabilities.
+ * `HuddleCollaboration()` in the host's capabilities, next to `channels()`.
+ *
+ * Each doc type is a channel family of the plugin, and each doc is one room in it. The
+ * server keeps a loaded copy of each open doc, checks every update against the doc's schema
+ * (and undoes a bad one for everyone), stores updates, and unloads a doc when its last
+ * member leaves. Server and admin code reach the docs with
+ * `ctx.plugin('livething:collaboration')` and `admin.plugin('livething:collaboration')`.
+ *
+ * @throws {LiveThingConfigError} When a doc type is listed twice, `docs` is empty, or
+ * `saveDelayMs` is not a whole number of 0 or more.
  *
  * @example
  * ```ts
+ * import { collaboration } from '@livething/plugin-collaboration/server'
+ * import { huddleDocs } from '../shared/huddle-docs'
+ *
  * export const HuddleCollaboration = collaboration({
  *   docs: huddleDocs,
  *   async access(ctx, doc) {
- *     if (!(await isRoomMember(ctx.user.id, doc.id))) return false
+ *     if (!ctx.user.id || !(await isRoomMember(ctx.user.id, doc.id))) return false
+ *
  *     return ctx.meta.role === 'guest' ? 'view' : 'edit'
  *   },
  * })

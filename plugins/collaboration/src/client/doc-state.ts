@@ -18,12 +18,19 @@ import type { DocDef, Draft, ItemRef, PathOf, Snapshot, YRef } from '~/schema.ts
  * @declarationEmit
  */
 export interface DocHistory {
+  /**
+   * Undo this client's last `change()`. Only this client's own changes are undone: if
+   * someone else edited meanwhile, their edits stay. The undo is a new change, so every
+   * member gets it.
+   */
   undo(): void;
+  /** Do again the last change `undo()` took back. */
   redo(): void;
   readonly canUndo: ReadableStore<boolean>;
   readonly canRedo: ReadableStore<boolean>;
   /** Changes until `resume()` become one undo step, such as during a drag. */
   pause(): void;
+  /** End a `pause()`. */
   resume(): void;
 }
 
@@ -52,16 +59,61 @@ export interface DocAnchors<D extends DocDef> {
 
 /** The parts of a client doc that read and edit its content. */
 export interface DocState<D extends DocDef> {
+  /**
+   * The doc's content as a read-only, plain JSON copy. Each change gives a new copy that
+   * reuses every part that did not change, so `===` tells you what changed.
+   */
   readonly state: ReadableStore<Snapshot<D['shape']>>;
+  /**
+   * A store of one part of `state`. It notifies only when `selector`'s result changes (by
+   * `===`), so a component that shows one task does not re-render when another task changes.
+   *
+   * @example
+   * ```ts
+   * const task = board.select((s) => s.tasks.find((t) => t.id === 't_1042'))
+   * ```
+   */
   select<T>(selector: (state: Snapshot<D['shape']>) => T): ReadableStore<T>;
+  /**
+   * Edit the doc. `mutate` runs once, at once, with a draft shaped like the doc. Everything
+   * it writes is one edit: one undo step, one update to the server, one store update.
+   * Assigning text changes only the letters that differ, so others' edits to the same text
+   * stay. If `mutate` throws, or a value fails its schema, nothing changes. Works offline:
+   * the edit goes out on the next join. Returns what `mutate` returns.
+   *
+   * @throws `invalid-change` when a value fails its schema, and `read-only` in a doc this
+   * client may only view.
+   *
+   * @example
+   * ```ts
+   * board.change((d) => {
+   *   d.title = 'Launch plan'
+   *   const task = d.tasks.find((t) => t.id === 't_1042')
+   *   if (task) task.done = true
+   * })
+   * ```
+   */
   change<R>(mutate: (draft: Draft<D['shape']>) => R): R;
-  /** A list item's ID, from an item object of a snapshot: a good key for rendering lists. */
+  /**
+   * A list item's internal ID, from an item object of `state`, or `undefined` for an object
+   * that is not a list item. It stays the same when the item moves: a good key for rendering
+   * lists.
+   */
   keyOf(item: object): string | undefined;
+  /** Undo and redo of this client's own changes. */
   readonly history: DocHistory;
+  /** Anchors that stay on their words or items as people edit, and stores of where they are. */
   readonly anchor: DocAnchors<D>;
   /** The raw Yjs objects, for rich text editors. */
   readonly yjs: {
+    /** The doc's `Y.Doc`. Writes made straight to it are not checked until the server sees them. */
     readonly doc: Y.Doc;
+    /**
+     * The Yjs type behind a `text()` (`Y.Text`) or `richText()` (`Y.XmlFragment`) field, for
+     * an editor binding. A path to any other field is a type error.
+     *
+     * @throws When the path leads to nothing, such as a list item that does not exist.
+     */
     at<T>(pick: Picker<D, YRef<T>>): T;
   };
   destroy(): void;

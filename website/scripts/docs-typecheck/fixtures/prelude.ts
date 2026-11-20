@@ -23,7 +23,9 @@ import { WebEnvironment } from '@livething/client/environment';
 import { emits, server, t } from '@livething/server';
 import type { AppCtx } from '@livething/server';
 import { base, dms, Message, rooms, Status } from './base';
+import { HuddleCollaboration } from './huddle-collab';
 import { huddle } from './huddle-definition';
+import { huddleDocs, taskBoard } from './huddle-docs';
 import type { HuddleSocket } from './huddle-definition';
 
 export { base, dms, emits, huddle, Message, rooms, server, Status, t };
@@ -54,7 +56,13 @@ export const socket = client<HuddleSocket>()(
   keepalive(),
   platform({ environment: WebEnvironment }),
   reconnection(),
+  HuddleCollaboration(),
 );
+
+// The general room's task board, from the Collaboration plugin.
+export const collab = HuddleCollaboration.use(socket);
+export const board = collab.doc('task-board', 'general');
+export { HuddleCollaboration, huddleDocs, taskBoard };
 
 export const general = socket.channel('rooms', 'room:general');
 export const room = general;

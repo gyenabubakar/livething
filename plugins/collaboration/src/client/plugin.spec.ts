@@ -527,6 +527,53 @@ describe('collaboration() on the client', () => {
       expect(stored.tasks.length).toBe(3);
     });
 
+    it('tells onRefused when it rejoins as a viewer with edits the server never got', async () => {
+      let role: 'edit' | 'view' = 'edit';
+      const server = await startServer({ access: () => role });
+      const network = memoryNetwork(server.engine);
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      const refusals: string[] = [];
+
+      amara.onRefused((refusal) => refusals.push(refusal.reason));
+      await amara.open();
+
+      network.goOffline();
+      await until(() => amara.status.get() === 'offline');
+      amara.change((d) => {
+        d.title = 'Written offline';
+      });
+      role = 'view';
+      network.goOnline();
+
+      await until(() => amara.access.get() === 'view' && amara.status.get() === 'synced');
+      await until(() => refusals.length === 1);
+      expect(refusals).toEqual(['this client may only view the doc']);
+      expect((await server.api().doc('task-board', 'launch').read()).title).toBe('');
+    });
+
+    it('tells onRefused nothing when a viewer opens and rejoins a doc with deleted content', async () => {
+      const { network, api } = await huddle();
+      await api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = 'Lau';
+          d.tasks.delete(0);
+        });
+      const guest = huddleClient(network, 'u_guest').collab.doc('task-board', 'launch');
+      const refusals: string[] = [];
+      guest.onRefused((refusal) => refusals.push(refusal.reason));
+
+      await guest.open();
+
+      network.goOffline();
+      await until(() => guest.status.get() === 'offline');
+      network.goOnline();
+      await until(() => guest.status.get() === 'synced');
+
+      expect(guest.state.get().title).toBe('Lau');
+      expect(refusals).toEqual([]);
+    });
+
     it('keeps an offline edit on the device across a reload, and syncs it later', async () => {
       const { network, api } = await huddle();
       const storage = deviceStorage();
@@ -553,6 +600,38 @@ describe('collaboration() on the client', () => {
 
       await until(() => after.status.get() === 'synced');
       expect((await api().doc('task-board', 'launch').read()).title).toBe('Written offline');
+    });
+
+    it('tells onRefused when a viewer loads edits from the device that the server never got', async () => {
+      let role: 'edit' | 'view' = 'edit';
+      const server = await startServer({ access: () => role });
+      const network = memoryNetwork(server.engine);
+      const storage = deviceStorage();
+      const before = huddleClient(network, 'u_amara', { storage }).collab.doc(
+        'task-board',
+        'launch',
+      );
+
+      await before.open();
+      network.goOffline();
+      before.change((d) => {
+        d.title = 'Written offline';
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      role = 'view';
+      network.goOnline();
+
+      const after = huddleClient(network, 'u_amara', { storage }).collab.doc(
+        'task-board',
+        'launch',
+      );
+      const refusals: string[] = [];
+      after.onRefused((refusal) => refusals.push(refusal.reason));
+      await after.open();
+
+      expect(after.access.get()).toBe('view');
+      expect(refusals).toEqual(['this client may only view the doc']);
     });
   });
 

@@ -26,6 +26,7 @@ export interface ItemAnchor {
   readonly list: boolean;
 }
 
+/** An anchor of either kind, as `anchor.watch()` takes it back from JSON. */
 export type Anchor = TextAnchor | ItemAnchor;
 
 /** Characters `from` to `to` of a text, the end not included. */
@@ -34,7 +35,10 @@ export interface TextRange {
   readonly to: number;
 }
 
-/** Where a text anchor's words are now. */
+/**
+ * Where a text anchor's words are now: their range in the field's plain text (for rich text,
+ * the text `state` shows), and the words themselves.
+ */
 export interface TextPlace {
   readonly from: number;
   readonly to: number;

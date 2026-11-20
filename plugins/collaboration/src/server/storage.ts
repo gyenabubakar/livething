@@ -42,7 +42,10 @@ function bytesOf(data: ArrayBuffer | Uint8Array): Uint8Array {
 /**
  * The default storage: tables in the server's own SQL (`ctx.sql`), so it works on Node and on
  * Cloudflare with no setup. An update or a version bigger than a row may hold is kept in
- * several rows.
+ * several rows. Its tables are `livething_collaboration_updates`,
+ * `livething_collaboration_versions` and `livething_collaboration_version_parts`.
+ *
+ * @param sql Any LiveThing `SQLProvider`, such as `ctx.sql`.
  */
 export function sqlStorage(sql: SQLProvider): ServerStorage {
   let ready = false;

@@ -5,9 +5,20 @@ export interface DocRef<TType extends string = string> {
 }
 
 /**
- * Where docs are kept: on the server (`sqlStorage` by default), or on the device (the
- * client's `storage` option). The plugin calls these one at a time for each doc, in order:
- * a load, then appends and compactions. Each may return a promise.
+ * Where a doc's updates are kept: on the device (the client's `storage` option, such as
+ * `indexedDbStorage()`), and on the server as part of `ServerStorage`. The bytes are Yjs
+ * updates: keep them as they are. The plugin calls these one at a time for each doc, in
+ * order: a load, then appends and compactions. Each may return a promise.
+ *
+ * @example
+ * ```ts
+ * // Docs on a React Native device, in a key-value store with an `append` and a `replace`.
+ * const deviceStorage: CollaborationStorage = {
+ *   load: (doc) => deviceStore.readAll(`${doc.type}:${doc.id}`),
+ *   append: (doc, update) => deviceStore.append(`${doc.type}:${doc.id}`, update),
+ *   compact: (doc, state) => deviceStore.replace(`${doc.type}:${doc.id}`, [state]),
+ * }
+ * ```
  */
 export interface CollaborationStorage {
   /** Every stored update of a doc, oldest first. A doc never stored gives an empty list. */

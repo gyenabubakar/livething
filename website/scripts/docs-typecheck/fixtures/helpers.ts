@@ -197,6 +197,8 @@ export declare function isBanned(userId: string): boolean;
 export declare function saveMessages(messages: Message[]): void;
 export declare function isUserBanned(userId: string): Promise<boolean>;
 export declare function isRoomMember(userId: string, roomId: string): Promise<boolean>;
+/** Puts a room's task titles in Huddle's search index, so message search finds tasks too. */
+export declare function indexTaskTitles(roomId: string, titles: readonly string[]): Promise<void>;
 export declare function isSendingTooManyFrames(userId: string): boolean;
 export declare function showMissingProfile(userId: string): void;
 export declare function retryLoadingProfile(userId: string): void;

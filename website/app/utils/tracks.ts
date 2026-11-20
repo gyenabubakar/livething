@@ -15,7 +15,7 @@ export interface TrackInfo {
 
 export const tracks: TrackInfo[] = [
   { value: 'core', label: 'Core', icon: 'i-ph-brackets-angle-duotone', to: '/core/start/introduction' },
-  { value: 'plugins', label: 'Plugins', icon: 'i-ph-plug-duotone', to: '/plugins/chat/overview' },
+  { value: 'plugins', label: 'Plugins', icon: 'i-ph-plug-duotone', to: '/plugins/collaboration/overview' },
 ];
 
 export function trackForPath(path: string): Track | undefined {

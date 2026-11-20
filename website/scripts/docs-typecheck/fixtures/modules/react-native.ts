@@ -8,6 +8,13 @@ export declare const StyleSheet: {
 };
 export declare function View(props: { style?: ViewStyle; children?: ReactNode }): JSX.Element;
 export declare function Text(props: { style?: ViewStyle; children?: ReactNode }): JSX.Element;
+type TextSelection = { start: number; end: number };
+export declare function TextInput(props: {
+  value?: string;
+  selection?: TextSelection;
+  onChangeText?: (text: string) => void;
+  onSelectionChange?: (event: { nativeEvent: { selection: TextSelection } }) => void;
+}): JSX.Element;
 export declare function ActivityIndicator(props: { size?: 'small' | 'large' }): JSX.Element;
 export declare function FlatList<T>(props: {
   data: ArrayLike<T> | null | undefined;

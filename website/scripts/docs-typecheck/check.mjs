@@ -53,6 +53,7 @@ const PACKAGES = {
   '@livething/server': 'server',
   '@livething/server-node': 'server-adapters/node',
   '@livething/server-cloudflare': 'server-adapters/cloudflare',
+  '@livething/plugin-collaboration': 'plugins/collaboration',
 };
 const MODULE_FIXTURES = {
   react: 'react',

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { useEventListener } from '@vueuse/core'
 
-// First-party plugins on the roadmap (none ship yet, so each is tagged "coming
-// soon"). A pinned list on the left tracks which row is on screen, and clicking
-// an entry scrolls to its row. The page scrolls normally the whole time.
+// First-party plugins. One that ships links to its docs; the others are tagged
+// "coming soon". A pinned list on the left tracks which row is on screen, and
+// clicking an entry scrolls to its row. The page scrolls normally the whole time.
 const plugins = [
   {
     key: 'chat',
@@ -25,6 +25,7 @@ const plugins = [
     icon: 'i-ph-users-four-duotone',
     title: 'Shared documents and state that many people edit at once',
     features: ['Conflict-free edits to text and typed data', 'Undo, redo and version history', 'Anchors that follow their words and items as people edit', 'Offline edits merge on reconnect'],
+    docs: '/plugins/collaboration/overview',
   },
   {
     key: 'feed',
@@ -103,7 +104,7 @@ function go(index: number) {
               <p class="text-xs font-medium uppercase tracking-widest text-zinc-500">
                 {{ plugin.name }}
               </p>
-              <span class="border border-default px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-widest text-zinc-500">Coming soon</span>
+              <span v-if="!('docs' in plugin)" class="border border-default px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-widest text-zinc-500">Coming soon</span>
             </div>
             <h3 class="mt-4 text-3xl font-semibold tracking-tight text-highlighted">
               {{ plugin.title }}
@@ -114,6 +115,10 @@ function go(index: number) {
                 {{ feature }}
               </li>
             </ul>
+            <ULink v-if="'docs' in plugin" :to="plugin.docs" class="mt-6 inline-flex items-center gap-1 text-sm font-medium text-primary">
+              Read the docs
+              <UIcon name="i-ph-arrow-right" class="size-4" />
+            </ULink>
           </div>
 
           <LandingGrainPanel :tone="index % 2 ? 'dusk' : 'ember'" class="min-h-[26rem] cursor-default select-none">

@@ -137,7 +137,7 @@ const landingItems = [
   },
   {
     label: 'Plugins',
-    to: '/plugins/chat/overview',
+    to: '/plugins/collaboration/overview',
     children: [
       {
         label: 'Chat',

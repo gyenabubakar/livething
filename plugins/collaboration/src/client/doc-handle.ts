@@ -36,12 +36,16 @@ const COMPACT_AFTER_UPDATES = 200;
 /** Where a doc is: not open, joining, in step with the server, sending changes, or offline. */
 export type DocStatus = 'closed' | 'opening' | 'synced' | 'saving' | 'offline';
 
-/** The server undid one of this client's changes. */
+/** The server undid one of this client's changes. `onRefused` gets it. */
 export interface Refusal {
+  /** Why, in words, such as `'this client may only view the doc'`. For logs, not for users. */
   readonly reason: string;
 }
 
-/** What a `ReadOnly` error says: which doc can only be read. */
+/**
+ * The detail of the `read-only` error that `change()` and `versions.restore()` throw in a
+ * doc this client may only view: which doc.
+ */
 export interface ReadOnlyDetail {
   readonly type: string;
   readonly id: string;
@@ -73,15 +77,41 @@ export interface DocRoom extends AwarenessRoom {
   request(event: 'list-versions', payload: null): Promise<{ versions: readonly VersionInfo[] }>;
 }
 
-/** A doc's saved versions, kept on the server. */
+/**
+ * A doc's saved versions, kept on the server. The doc must be open.
+ *
+ * @example
+ * ```ts
+ * await board.versions.save('Before the launch review')
+ * const [latest] = await board.versions.list()
+ * if (latest) await board.versions.restore(latest.id)
+ * ```
+ */
 export interface DocVersions<D extends DocDef> {
-  /** Save the doc as it is on the server, after this client's sent changes reach it. */
+  /**
+   * Save the doc as the server has it now, after the server confirmed the changes this
+   * client sent. Needs `'edit'` access.
+   *
+   * @param label 1 to 200 characters, such as `'Before the launch review'`.
+   * @returns The new version's info. Its `author` is this client's user ID.
+   * @throws `access-denied` for a `'view'` client, and `validation-failed` for a bad label.
+   */
   save(label: string): Promise<VersionInfo>;
   /** The doc's versions, newest first. */
   list(): Promise<readonly VersionInfo[]>;
-  /** One version's content. */
+  /**
+   * One version's content, typed like `state`.
+   *
+   * @throws `version-not-found` when the doc has no version with that ID.
+   */
   read(id: string): Promise<Snapshot<D['shape']>>;
-  /** Make the doc hold what a version holds, in one `change()`, so `history.undo()` takes it back. */
+  /**
+   * Make the doc hold what a version holds. It changes only what differs, as one `change()`:
+   * every member gets it, and `history.undo()` takes it back. Text keeps its anchors on the
+   * words that did not change, and list items that are still there keep their IDs.
+   *
+   * @throws `read-only` for a `'view'` client, and `version-not-found` for an unknown ID.
+   */
   restore(id: string): Promise<void>;
 }
 
@@ -97,27 +127,88 @@ type AwarenessState<D extends DocDef> =
  * and the stores show its content, its members and where it is.
  */
 export interface DocHandle<D extends DocDef> extends Omit<DocState<D>, 'destroy' | 'yjs'> {
+  /** The doc type's name, such as `'task-board'`. */
   readonly type: D['name'];
+  /** The doc's ID within its type, such as `'launch'`. */
   readonly id: string;
-  /** Join the doc and sync it. Counted: each `open()` needs a `close()`. */
+  /**
+   * Join the doc: load what the device keeps (with the `storage` option), join the doc's
+   * room, and sync, where each side sends only what the other is missing. Resolves once
+   * the doc is synced.
+   *
+   * Counted: each `open()` needs a `close()`, and calls while it is open resolve with the
+   * same sync. Rejects with the server's error (such as `access-denied` when `access`
+   * returned `false`), or when the doc is closed before it synced.
+   */
   open(): Promise<void>;
-  /** Leave the doc, a moment after the last `close()`. */
+  /**
+   * Undo one `open()`. After the last one, the doc stays joined for `closeDelayMs`, so a
+   * quick unmount and mount (React StrictMode) does not leave and join again. Then it leaves
+   * the room and frees this member's locks. The content stays in memory.
+   */
   close(): void;
+  /**
+   * Where the doc is: `'closed'`, `'opening'` (joining for the first time), `'synced'`,
+   * `'saving'` (the server has not confirmed some of this client's changes yet), or
+   * `'offline'` (the socket or the room dropped; changes wait and go out on the next join).
+   */
   readonly status: ReadableStore<DocStatus>;
-  /** `'edit'` or `'view'` once open, else `null`. */
+  /** What the server's `access` gave this client: `'edit'` or `'view'` once open, else `null`. */
   readonly access: ReadableStore<Access | null>;
-  /** Run `callback` when the server undoes one of this client's changes. */
+  /**
+   * Run `callback` when the server undoes one of this client's changes, such as a value its
+   * schema refuses (from an older app version). The doc already shows the undone state.
+   * It also runs each time the client joins as a `'view'` client with content the server does
+   * not have: changes made offline or kept in device storage, or content the server lost. That
+   * content is not sent, and stays in this client's copy (and its device storage).
+   * Returns a function that removes the callback.
+   */
   onRefused(callback: (refusal: Refusal) => void): () => void;
+  /** Each member's live state, typed by the doc's `awareness` schema. */
   readonly awareness: DocAwareness<AwarenessState<D>>;
-  /** Hold `key` so only this member edits that part. Resolves `false` when someone else has it. */
+  /**
+   * Hold `key` so only this member edits that part, such as `'task:t_1042'`. Resolves `true`
+   * once the server holds it for this member, and `false` when another member has it, the
+   * client may only view, or the doc is not open. A lock is freed by `unlock()`, `close()`
+   * or a disconnect. A member holds at most 32 locks, each key at most 128 bytes.
+   *
+   * @example
+   * ```ts
+   * if (await board.lock('task:t_1042')) openEditor()
+   * else showToast('Someone else is editing this task.')
+   * ```
+   */
   lock(key: string): Promise<boolean>;
+  /** Free a lock this member holds. Runs after any `lock()` still waiting for the server. */
   unlock(key: string): void;
-  /** Every lock held, by key. */
+  /** Every lock held in the doc, by key, with who holds it. */
   readonly locks: ReadableStore<ReadonlyMap<string, LockHolder>>;
-  /** Keep a text input and a `text()` field in step, with the cursor where it was. */
+  /**
+   * Keep an `<input>` or `<textarea>` and a `text()` field in step. Typing becomes changes,
+   * and when someone else edits the text, the input updates and the cursor stays on the
+   * same character. Returns a function that unbinds it.
+   *
+   * @example
+   * ```ts
+   * const unbind = board.bindText(titleInput, (p) => p.tasks[0]?.title)
+   * ```
+   */
   bindText(input: TextInput, pick: Picker<D, YRef<Y.Text>>): () => void;
-  /** The raw Yjs objects, for rich text editors. */
+  /**
+   * The raw Yjs objects, for editor bindings: the `Y.Doc`, the typed Yjs type at a path
+   * (`at()`), and a y-protocols `Awareness` that stays in step with LiveThing awareness, for
+   * remote cursors.
+   *
+   * @example
+   * ```ts
+   * import { ySyncPlugin, yCursorPlugin, yUndoPlugin } from 'y-prosemirror'
+   *
+   * const notes = board.yjs.at((p) => p.tasks[0]?.notes) // Y.XmlFragment
+   * const plugins = [ySyncPlugin(notes), yCursorPlugin(board.yjs.awareness), yUndoPlugin()]
+   * ```
+   */
   readonly yjs: DocState<D>['yjs'] & { readonly awareness: Awareness };
+  /** The doc's saved versions, kept on the server. */
   readonly versions: DocVersions<D>;
 }
 
@@ -181,6 +272,8 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
   let syncs = 0;
   let sent = 0;
   const pending = new Set<number>();
+  /** A local change happened that the next sync must send. */
+  let unsent = false;
 
   let incoming: Uint8Array[] = [];
   /** The `version` parts of each version read in flight, by its `n`. */
@@ -226,9 +319,35 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     if (origin === FROM_DEVICE) return;
 
     keepOnDevice(update);
+    if (origin === FROM_SERVER) return;
+
+    if (synced && access.store.get() === 'edit') send(update);
     // Before the first sync, or offline, the sync after the next join sends it.
-    if (origin !== FROM_SERVER && synced && access.store.get() === 'edit') send(update);
+    else unsent = true;
   });
+
+  /**
+   * Whether this copy holds content the server's state vector does not cover, such as edits
+   * loaded from the device. A delete adds no content, so only `unsent` catches those.
+   */
+  function hasContentBeyond(serverVector: Uint8Array | undefined): boolean {
+    const server = serverVector ? Y.decodeStateVector(serverVector) : new Map<number, number>();
+    for (const [client, clock] of Y.decodeStateVector(Y.encodeStateVector(ydoc))) {
+      if (clock > (server.get(client) ?? 0)) return true;
+    }
+
+    return false;
+  }
+
+  function refuse(reason: string): void {
+    for (const callback of [...refusals]) {
+      try {
+        callback({ reason });
+      } catch (error) {
+        onError(error);
+      }
+    }
+  }
 
   /** The connection or the room dropped: the next join syncs again. */
   function unsync(): void {
@@ -267,8 +386,16 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     synced = true;
     everSynced = true;
     // Everything the server lacks: edits made offline, or before this sync answered.
-    const missing = Y.encodeStateAsUpdate(ydoc, decodeBase64(info.vector) ?? undefined);
-    if (info.access === 'edit' && !isEmpty(missing)) send(missing);
+    const serverVector = decodeBase64(info.vector) ?? undefined;
+    const missing = Y.encodeStateAsUpdate(ydoc, serverVector);
+    if (info.access === 'edit') {
+      if (!isEmpty(missing)) send(missing);
+    } else if (unsent || hasContentBeyond(serverVector)) {
+      // Local edits (made offline, before access changed) never reach a viewer's server.
+      refuse('this client may only view the doc');
+    }
+
+    unsent = false;
 
     setStatus();
     opening?.resolve();
@@ -312,14 +439,7 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
       // An earlier update was lost on the way: send everything the server lacks.
       if (info.reason === OUT_OF_ORDER) void sync();
 
-      for (const callback of [...refusals]) {
-        try {
-          callback({ reason: info.reason });
-        } catch (error) {
-          onError(error);
-        }
-      }
-
+      refuse(info.reason);
       setStatus();
     }),
   ];

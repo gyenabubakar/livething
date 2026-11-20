@@ -37,27 +37,91 @@ export interface Shape {
 /** One part of a doc. */
 export type Field = TextField | RichTextField | ListField<any> | RecordField<any> | Leaf | Shape;
 
-/** Text that several people type into together. */
+/**
+ * Text that several people type into together. Edits merge letter by letter, so two people
+ * can type in the same field and both edits stay. It reads as a `string`, and you write it
+ * by assigning a string in `change()`: the plugin works out which letters changed and edits
+ * only those. A plain `<input>` binds to it with `bindText()`, and a code or plain text
+ * editor (CodeMirror, Monaco, Quill) binds to its `Y.Text` through `yjs.at()`.
+ *
+ * @example
+ * ```ts
+ * const taskBoard = doc('task-board', { title: text() })
+ * board.change((d) => {
+ *   d.title = 'Launch plan'
+ * })
+ * ```
+ */
 export function text(): TextField {
   return { [KIND]: 'text' };
 }
 
-/** Rich text for an editor such as ProseMirror, Tiptap or Lexical. */
+/**
+ * Rich text, edited through an editor's Yjs binding: ProseMirror (y-prosemirror) or Tiptap.
+ * Its Yjs type is a `Y.XmlFragment`, which you get with `yjs.at()`. It reads as plain text
+ * (for previews and search), one line per block. `change()` cannot assign it: edit it in the
+ * editor. When you create an item that holds it (`push`, `insert`, `set`), you may give it
+ * as a string, and each line becomes a `paragraph`.
+ *
+ * Lexical is not supported: its binding needs a different Yjs type.
+ *
+ * @example
+ * ```ts
+ * const taskBoard = doc('task-board', { tasks: list({ id: v.string(), notes: richText() }) })
+ * const notes = board.yjs.at((p) => p.tasks[0]?.notes) // Y.XmlFragment
+ * ```
+ */
 export function richText(): RichTextField {
   return { [KIND]: 'rich-text' };
 }
 
-/** A list of `item`. Adds, deletes and moves from different people all merge. */
+/**
+ * A list of `item`. Adds, deletes and moves from different people all merge. A move moves
+ * the item itself and never copies it, so when two people move the same item at once it
+ * still shows up once, and edits made to it during the move stay. Each item has an internal
+ * ID that stays the same when it moves: `keyOf()` gives it, and item anchors use it.
+ *
+ * It reads as a read-only array, and in `change()` it has `push`, `insert`, `set`,
+ * `delete`, `move`, `at`, `find` and `findIndex`.
+ *
+ * @param item The shape of one item: any field, such as a plain object of fields.
+ *
+ * @example
+ * ```ts
+ * const taskBoard = doc('task-board', {
+ *   tasks: list({ id: v.string(), title: text(), done: v.boolean() }),
+ * })
+ * board.change((d) => d.tasks.move(0, 2))
+ * ```
+ */
 export function list<const TItem extends Field>(item: TItem): ListField<TItem> {
   return { [KIND]: 'list', item };
 }
 
-/** A map from keys you choose to `item`. Each key merges on its own. */
+/**
+ * A map from keys you choose, such as user IDs, to `item`. Each key merges on its own, so
+ * two people who set different keys at once both keep their value. It reads as a read-only
+ * object, and in `change()` it has `get`, `set`, `has`, `delete`, `keys` and `size`.
+ *
+ * @param item The shape of each value.
+ *
+ * @example
+ * ```ts
+ * const taskBoard = doc('task-board', {
+ *   settings: record({ collapsed: v.array(v.string()) }), // by user ID
+ * })
+ * board.change((d) => d.settings.set(userId, { collapsed: ['done'] }))
+ * ```
+ */
 export function record<const TItem extends Field>(item: TItem): RecordField<TItem> {
   return { [KIND]: 'record', item };
 }
 
-/** A doc type: its name, the shape of its content, and the shape of each member's awareness state. */
+/**
+ * A doc type: its name, the shape of its content, and the shape of each member's awareness
+ * state. Made by {@link doc}. Give the same list of them to the server plugin and the client
+ * plugin.
+ */
 export interface DocDef<
   TName extends string = string,
   TShape extends Shape = Shape,
@@ -82,15 +146,37 @@ const RESERVED_FIELD_NAMES: ReadonlySet<string> = new Set(
 
 /**
  * Describe a doc type once, in code the server and the client share. Every type the
- * plugin uses is read from it.
+ * plugin uses is read from it: the snapshot you read, the draft `change()` gives you, what
+ * `yjs.at()` returns, the awareness state, and the doc names `collab.doc()` takes.
+ *
+ * A field is `text()`, `richText()`, `list(...)`, `record(...)`, a plain object of fields,
+ * or any Standard Schema (valibot, zod, arktype, ...) for a value that changes as a whole.
+ * A schema must check a value at once (not async), and its output must be JSON or bytes.
+ *
+ * @param name The doc type's name: 1 to 64 lowercase letters, digits and hyphens, starting
+ * with a letter, such as `'task-board'`.
+ * @param shape The doc's fields. A value at the top (not inside a list or record) needs a
+ * default, such as `v.optional(v.boolean(), false)`, because a new doc starts empty.
+ * Leaving it out is a type error.
+ * @param options `awareness`: the schema of each member's live state in this doc.
+ * @throws {LiveThingConfigError} When the name, a field name or a field is not valid, or a
+ * value at the top gives no default.
  *
  * @example
  * ```ts
- * export const taskBoard = doc('task-board', {
- *   title: text(),
- *   archived: v.optional(v.boolean(), false),
- *   tasks: list({ id: v.string(), title: text(), done: v.boolean() }),
- * })
+ * import { doc, list, record, richText, text } from '@livething/plugin-collaboration'
+ * import * as v from 'valibot'
+ *
+ * export const taskBoard = doc(
+ *   'task-board',
+ *   {
+ *     title: text(),
+ *     archived: v.optional(v.boolean(), false),
+ *     tasks: list({ id: v.string(), title: text(), done: v.boolean(), notes: richText() }),
+ *     settings: record({ collapsed: v.array(v.string()) }),
+ *   },
+ *   { awareness: v.object({ viewingTaskId: v.nullable(v.string()) }) },
+ * )
  * ```
  */
 export function doc<
@@ -273,7 +359,12 @@ type DeepReadonly<T, D extends readonly 0[] = []> = unknown extends T
                 ? ReadonlySet<DeepReadonly<V, [...D, 0]>>
                 : { readonly [K in keyof T]: DeepReadonly<T[K], [...D, 0]> };
 
-/** What reads a field: the read-only, plain JSON copy in `state` and `select()`. */
+/**
+ * What reads a field: the read-only, plain JSON copy in `state`, `select()`,
+ * `versions.read()`, the server's `read()` and `onSave`. Text and rich text read as
+ * strings, lists as read-only arrays and records as read-only objects. A new snapshot
+ * reuses every part that did not change, so `===` tells you what changed.
+ */
 export type Snapshot<F> = F extends TextField | RichTextField
   ? string
   : F extends ListField<infer I>
@@ -286,7 +377,11 @@ export type Snapshot<F> = F extends TextField | RichTextField
           ? Simplify<{ readonly [K in keyof F]: Snapshot<F[K]> }>
           : never;
 
-/** What writes a whole field: a new list item, a record value, or a value. */
+/**
+ * What writes a whole field: a new list item (`push`, `insert`, `set`), a record value
+ * (`set`), or a value. It is the schema's input type, so a field with a default may be left
+ * out.
+ */
 export type Input<F> = F extends TextField | RichTextField
   ? string
   : F extends ListField<infer I>
@@ -299,9 +394,13 @@ export type Input<F> = F extends TextField | RichTextField
           ? Simplify<{ readonly [K in keyof F]: Input<F[K]> }>
           : never;
 
-/** A list in a draft. */
+/**
+ * A list in a draft. Read and write items through it; assigning a new array to a list field
+ * is a type error. Every write is checked against the item's schema.
+ */
 export interface DraftList<I extends Field> extends Iterable<Draft<I>> {
   readonly length: number;
+  /** The item at `index` (0 or more), or `undefined`. You can write to it. */
   at(index: number): Draft<I> | undefined;
   /**
    * The first item `predicate` accepts. The predicate gets each item as it was when the
@@ -310,19 +409,28 @@ export interface DraftList<I extends Field> extends Iterable<Draft<I>> {
   find(predicate: (item: Snapshot<I>) => boolean): Draft<I> | undefined;
   /** The index of the first item `predicate` accepts, with the same rule as `find`. */
   findIndex(predicate: (item: Snapshot<I>) => boolean): number;
+  /** Add items at the end. */
   push(...items: Input<I>[]): void;
+  /** Add items before `index`. */
   insert(index: number, ...items: Input<I>[]): void;
+  /** Replace the content of the item at `index` with `item`. It keeps its place and its ID. */
   set(index: number, item: Input<I>): void;
+  /** Delete `count` items (default 1) from `index`. */
   delete(index: number, count?: number): void;
-  /** Moves the item itself. Nothing is copied, so edits others make to it at the same time stay. */
+  /**
+   * Move the item at `from` so it ends up at `to`. It moves the item itself: nothing is
+   * copied, so edits others make to it at the same time stay, and it keeps its ID.
+   */
   move(from: number, to: number): void;
 }
 
-/** A record in a draft. */
+/** A record in a draft: a map from your own keys to items. */
 export interface DraftRecord<I extends Field> {
   readonly size: number;
+  /** The item at `key`, or `undefined`. You can write to it. */
   get(key: string): Draft<I> | undefined;
   has(key: string): boolean;
+  /** Put `item` at `key`, in place of any item there. */
   set(key: string, item: Input<I>): void;
   delete(key: string): void;
   keys(): IterableIterator<string>;
@@ -340,7 +448,11 @@ export type DraftShape<S extends Shape> = Simplify<
   }
 >;
 
-/** What `change()` hands you: an object shaped like the doc that you can write to. */
+/**
+ * What `change()` hands you: an object shaped like the doc that you can write to. Assign
+ * text and values; change lists and records through their methods. Everything one
+ * `change()` writes is one edit: one undo step, one update on the wire.
+ */
 export type Draft<F> = F extends TextField | RichTextField
   ? string
   : F extends ListField<infer I>

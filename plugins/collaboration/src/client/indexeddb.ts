@@ -4,6 +4,7 @@ import type { CollaborationStorage, DocRef } from '~/doc/storage.ts';
 const STORE = 'updates';
 const BY_DOC = 'doc';
 
+/** The options of {@link indexedDbStorage}. */
 export interface IndexedDbStorageOptions {
   /** The IndexedDB database name. Default `'livething-collaboration'`. */
   readonly name?: string;

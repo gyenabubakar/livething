@@ -21,6 +21,13 @@ export declare function useState<S = undefined>(): [
   Dispatch<SetStateAction<S | undefined>>,
 ];
 export declare function useEffect(effect: EffectCallback, deps?: DependencyList): void;
+export interface RefObject<T> {
+  current: T;
+}
+export declare function useRef<T>(initialValue: T): RefObject<T>;
+export declare function useRef<T>(initialValue: T | null): RefObject<T | null>;
+export declare function useMemo<T>(factory: () => T, deps: DependencyList): T;
+export declare function memo<P>(component: (props: P) => ReactNode): (props: P) => ReactNode;
 export declare function useSyncExternalStore<Snapshot>(
   subscribe: (onStoreChange: () => void) => () => void,
   getSnapshot: () => Snapshot,
@@ -48,8 +55,10 @@ export namespace JSX {
     key?: string | number;
   }
   export interface IntrinsicElements {
+    button: HtmlProps & { onClick?: () => void };
+    input: HtmlProps & { ref?: RefObject<HTMLInputElement | null>; readOnly?: boolean };
     div: HtmlProps;
-    li: HtmlProps;
+    li: HtmlProps & { onClick?: () => void };
     span: HtmlProps;
     ul: HtmlProps;
   }
