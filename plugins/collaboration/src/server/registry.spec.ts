@@ -4,6 +4,7 @@ import { open, taskBoard } from '~/test/task-board.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import type { CollaborationStorage } from '~/doc/storage.ts';
+import type { Draft } from '~/schema.ts';
 import type { RegistryOptions } from '~/server/registry.ts';
 
 const launch = { type: 'task-board', id: 'launch' };
@@ -11,6 +12,7 @@ const launch = { type: 'task-board', id: 'launch' };
 /** A registry over storage in memory that fails while `failing` is set. */
 function setup(members: () => number = () => 0) {
   const stored: Uint8Array[] = [];
+  const sent: Uint8Array[] = [];
   const errors: string[] = [];
   const state = { failing: false, loads: 0 };
   const storage: CollaborationStorage = {
@@ -33,7 +35,7 @@ function setup(members: () => number = () => 0) {
   const options: RegistryOptions = {
     defs: new Map([[taskBoard.name, taskBoard]]),
     storage,
-    broadcast: () => {},
+    broadcast: (_doc, update) => sent.push(update),
     members,
     saveDelayMs: 10,
     reportError: (message) => errors.push(message),
@@ -47,8 +49,43 @@ function setup(members: () => number = () => 0) {
     return open(taskBoard, ydoc).state.get().title;
   }
 
-  return { registry: new DocRegistry(options), state, errors, storedTitle };
+  return { registry: new DocRegistry(options), state, errors, storedTitle, stored, sent };
 }
+
+describe('DocRegistry changes', () => {
+  it('sends and stores the rollback of a change that throws, so later changes still apply', async () => {
+    const { registry, stored, sent } = setup();
+    function change(mutate: (d: Draft<typeof taskBoard.shape>) => void) {
+      return registry.change(launch, mutate as never);
+    }
+
+    await change((d) => {
+      d.title = 'one';
+    });
+    await expect(
+      change((d) => {
+        d.archived = true;
+        d.columns.push({ id: 'todo', name: 'To do' });
+        throw new Error('stop');
+      }),
+    ).rejects.toThrow('stop');
+    await change((d) => {
+      d.title = 'three';
+    });
+
+    for (const updates of [sent, stored]) {
+      const copy = new Y.Doc();
+      for (const update of updates) Y.applyUpdate(copy, update);
+
+      expect(copy.store.pendingStructs).toBeNull();
+      expect(open(taskBoard, copy).state.get()).toMatchObject({
+        title: 'three',
+        archived: false,
+        columns: [],
+      });
+    }
+  });
+});
 
 describe('DocRegistry loading', () => {
   it.each([

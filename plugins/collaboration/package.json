@@ -41,7 +41,7 @@
     "y-protocols": "^1.0.7"
   },
   "peerDependencies": {
-    "@livething/client": "^0.0.1",
+    "@livething/client": "^1.0.0-beta.0",
     "@livething/core": "^1.0.0-beta.0",
     "@livething/server": "^1.0.0-beta.0",
     "yjs": "^13.6.33"

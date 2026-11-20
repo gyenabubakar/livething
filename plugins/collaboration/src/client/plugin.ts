@@ -2,6 +2,7 @@ import { awareness, binary, channels, clientRequests, plugin } from '@livething/
 import { LiveThingConfigError } from '@livething/core';
 import { createDocHandle } from '~/client/doc-handle.ts';
 import { FAMILY, PLUGIN_ID, roomName } from '~/doc/wire.ts';
+import { docTypesByName } from '~/schema.ts';
 import type { CollaborationWire } from '~/client/contract.ts';
 import type { DocHandle, DocRoom } from '~/client/doc-handle.ts';
 import type { CollaborationStorage } from '~/doc/storage.ts';
@@ -73,19 +74,7 @@ export interface CollaborationClient<TDocs extends readonly DocDef[]> {
 export function collaboration<const TDocs extends readonly DocDef[]>(
   options: CollaborationClientOptions<TDocs>,
 ) {
-  const defs = new Map<string, DocDef>();
-  for (const def of options.docs) {
-    if (defs.has(def.name)) {
-      throw new LiveThingConfigError(`collaboration: the doc type '${def.name}' is listed twice`);
-    }
-
-    defs.set(def.name, def);
-  }
-
-  if (defs.size === 0) {
-    throw new LiveThingConfigError('collaboration: list at least one doc type in `docs`');
-  }
-
+  const defs = docTypesByName(options.docs);
   const closeDelayMs = options.closeDelayMs ?? 1000;
   if (!Number.isInteger(closeDelayMs) || closeDelayMs < 0) {
     throw new LiveThingConfigError(

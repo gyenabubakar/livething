@@ -1,3 +1,4 @@
+import { joinBytes } from '~/doc/parts.ts';
 import type { SQLProvider } from '@livething/server';
 import type { CollaborationStorage, DocRef } from '~/doc/storage.ts';
 import type { VersionInfo } from '~/doc/wire.ts';
@@ -182,15 +183,7 @@ export function sqlStorage(sql: SQLProvider): ServerStorage {
   };
 }
 
+/** The row pieces as one new array: a single piece is copied too, so the bytes are ours. */
 function join(pieces: readonly Uint8Array[]): Uint8Array {
-  if (pieces.length === 1) return pieces[0]!.slice();
-
-  const out = new Uint8Array(pieces.reduce((size, piece) => size + piece.length, 0));
-  let at = 0;
-  for (const piece of pieces) {
-    out.set(piece, at);
-    at += piece.length;
-  }
-
-  return out;
+  return pieces.length === 1 ? pieces[0]!.slice() : joinBytes(pieces);
 }

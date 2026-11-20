@@ -51,22 +51,28 @@ function sameLocks(a: ReadonlyMap<string, LockHolder>, b: ReadonlyMap<string, Lo
   return true;
 }
 
+/** What the awareness of one open doc is built on. */
+interface DocAwarenessOptions {
+  readonly room: AwarenessRoom;
+  /** The socket's connection state: the room still says 'subscribed' while it reconnects. */
+  readonly connection: ReadableStore<string>;
+  readonly ydoc: Y.Doc;
+  readonly onError: (error: unknown) => void;
+}
+
 /**
  * The awareness of one open doc, on the doc's LiveThing channel awareness. Each member's
  * state on the wire holds the app's state, the Yjs client ID, an editor's fields (cursors)
  * and its locks. `yjs()` gives a y-protocols `Awareness` that stays in step with it, for
  * editor bindings.
  */
-export function createDocAwareness<S>(
-  room: AwarenessRoom,
-  ydoc: Y.Doc,
-  onError: (error: unknown) => void,
-) {
+export function createDocAwareness<S>(options: DocAwarenessOptions) {
+  const { room, connection, ydoc, onError } = options;
   let mine: WireAwareness = { user: null, yjs: ydoc.clientID, editor: null, locks: [] };
   let attempts: Promise<unknown> = Promise.resolve();
 
   function joined(): boolean {
-    return room.status.get() === 'subscribed';
+    return room.status.get() === 'subscribed' && connection.get() === 'open';
   }
 
   function push(): void {
@@ -104,6 +110,11 @@ export function createDocAwareness<S>(
     room.awareness.self.subscribe(refreshLocks),
     room.status.subscribe((status) => {
       if (status === 'subscribed') push();
+      // The server freed this member's locks when it left the room; asking again is lock()'s job.
+      else mine = { ...mine, locks: [] };
+    }),
+    connection.subscribe((state) => {
+      if (state !== 'open') mine = { ...mine, locks: [] };
     }),
   ];
 
@@ -136,6 +147,9 @@ export function createDocAwareness<S>(
         }),
         room.status.subscribe((status) => {
           if (status !== 'subscribed') done(false);
+        }),
+        connection.subscribe((state) => {
+          if (state !== 'open') done(false);
         }),
       );
     });

@@ -499,6 +499,28 @@ export type PathOf<F> = F extends TextField | RichTextField
           ? { readonly [K in keyof F]: PathOf<F[K]> }
           : never;
 
+/**
+ * The doc types a `collaboration()` option lists, by name.
+ *
+ * @throws {LiveThingConfigError} When a doc type is listed twice, or there is none.
+ */
+export function docTypesByName(docs: readonly DocDef[]): Map<string, DocDef> {
+  const defs = new Map<string, DocDef>();
+  for (const def of docs) {
+    if (defs.has(def.name)) {
+      throw new LiveThingConfigError(`collaboration: the doc type '${def.name}' is listed twice`);
+    }
+
+    defs.set(def.name, def);
+  }
+
+  if (defs.size === 0) {
+    throw new LiveThingConfigError('collaboration: list at least one doc type in `docs`');
+  }
+
+  return defs;
+}
+
 /** The doc types of an app, by name. */
 export type DocsByName<TDocs extends readonly DocDef[]> = {
   [D in TDocs[number] as D['name']]: D;

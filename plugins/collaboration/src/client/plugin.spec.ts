@@ -362,12 +362,14 @@ describe('collaboration() on the client', () => {
         d.tasks.push(task('t3'));
       });
 
-      await until(() => refusals.length === 1);
       await until(async () => {
         const stored = await api().doc('task-board', 'launch').read();
         return stored.title === 'Launch plan' && stored.tasks.length === 3;
       });
       await until(() => amara.status.get() === 'synced');
+
+      // Nothing was undone: the resync saved it all, so onRefused stays quiet.
+      expect(refusals).toEqual([]);
     });
 
     it('throws a read-only error for a change in a doc the client may only view', async () => {
@@ -681,6 +683,44 @@ describe('collaboration() on the client', () => {
 
       await until(() => !kofi.locks.get().has('task:t1'));
       expect(await kofi.lock('task:t1')).toBe(true);
+    });
+
+    it('drops its locks on a disconnect, so it stays visible after a reconnect', async () => {
+      const { engine } = await huddle();
+      const amaraNetwork = memoryNetwork(engine);
+      const amara = huddleClient(amaraNetwork, 'u_amara').collab.doc('task-board', 'launch');
+      const kofi = huddleClient(memoryNetwork(engine), 'u_kofi').collab.doc('task-board', 'launch');
+      await amara.open();
+
+      await kofi.open();
+      expect(await amara.lock('task:t1')).toBe(true);
+
+      amaraNetwork.goOffline();
+      await until(() => !kofi.locks.get().has('task:t1'));
+      expect(await kofi.lock('task:t1')).toBe(true);
+      amaraNetwork.goOnline();
+      await until(() => amara.status.get() === 'synced');
+
+      amara.awareness.update({ viewingTaskId: 't9' });
+      await until(() =>
+        [...kofi.awareness.others.get().values()].some((m) => m.state?.viewingTaskId === 't9'),
+      );
+      expect(kofi.locks.get().get('task:t1')?.meta).toMatchObject({});
+      expect(amara.locks.get().get('task:t1')?.connectionId).not.toBe(
+        amara.awareness.self.get()?.connectionId,
+      );
+    });
+
+    it('resolves lock() false at once while the socket is down, not after the reconnect', async () => {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      await amara.open();
+
+      network.goOffline();
+      await until(() => amara.status.get() === 'offline');
+      const later = new Promise((resolve) => setTimeout(() => resolve('still waiting'), 30));
+
+      expect(await Promise.race([amara.lock('task:t1'), later])).toBe(false);
     });
 
     it('frees a lock unlocked right after lock(), before the server answered', async () => {

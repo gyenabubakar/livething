@@ -10,6 +10,7 @@ import { tags } from '@livething/server/tags';
 import { DocCore } from '~/doc/core.ts';
 import { eachPart, joinBytes } from '~/doc/parts.ts';
 import { FAMILY, MAX_PARTS, PLUGIN_ID, ROOM_TEMPLATE, roomName } from '~/doc/wire.ts';
+import { docTypesByName } from '~/schema.ts';
 import { checkAwareness, wireAwareness } from '~/server/awareness.ts';
 import { DocRegistry } from '~/server/registry.ts';
 import {
@@ -365,19 +366,7 @@ function versionDoc(state: Uint8Array): Y.Doc {
 export function collaboration<const TDocs extends readonly DocDef[]>(
   options: CollaborationOptions<TDocs>,
 ) {
-  const defs = new Map<string, DocDef>();
-  for (const def of options.docs) {
-    if (defs.has(def.name)) {
-      throw new LiveThingConfigError(`collaboration: the doc type '${def.name}' is listed twice`);
-    }
-
-    defs.set(def.name, def);
-  }
-
-  if (defs.size === 0) {
-    throw new LiveThingConfigError('collaboration: list at least one doc type in `docs`');
-  }
-
+  const defs = docTypesByName(options.docs);
   const saveDelayMs = options.saveDelayMs ?? 2000;
   if (!Number.isInteger(saveDelayMs) || saveDelayMs < 0) {
     throw new LiveThingConfigError(

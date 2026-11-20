@@ -127,26 +127,33 @@ export class DocRegistry {
     mutateOf: (core: DocCore) => (draft: Draft<DocDef['shape']>) => R,
   ): Promise<R> {
     return this.with(ref, async (doc) => {
-      const origin = new ChangeOrigin();
-      let made: Uint8Array | null = null;
-      function capture(update: Uint8Array, from: unknown) {
-        if (from === origin) made = made ? Y.mergeUpdates([made, update]) : update;
+      // Every update the change makes, whatever its origin: a change that throws is rolled
+      // back by a second transaction, and both must reach the members and storage, or the
+      // server's clock runs past what they have.
+      const made: Uint8Array[] = [];
+      function capture(update: Uint8Array) {
+        made.push(update);
       }
 
       doc.core.ydoc.on('update', capture);
-      let result: R;
+      let outcome: { ok: true; result: R } | { ok: false; error: unknown };
       try {
-        result = doc.core.change(mutateOf(doc.core), origin);
+        outcome = { ok: true, result: doc.core.change(mutateOf(doc.core), new ChangeOrigin()) };
+      } catch (error) {
+        outcome = { ok: false, error };
       } finally {
         doc.core.ydoc.off('update', capture);
       }
 
-      if (made) {
-        this.options.broadcast(ref, made);
-        await this.store(doc, made);
+      if (made.length > 0) {
+        const update = Y.mergeUpdates(made);
+        this.options.broadcast(ref, update);
+        await this.store(doc, update);
       }
 
-      return result;
+      if (!outcome.ok) throw outcome.error;
+
+      return outcome.result;
     });
   }
 

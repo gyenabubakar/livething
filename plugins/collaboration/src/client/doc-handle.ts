@@ -169,8 +169,9 @@ export interface DocHandle<D extends DocDef> extends Omit<DocState<D>, 'destroy'
   /**
    * Hold `key` so only this member edits that part, such as `'task:t_1042'`. Resolves `true`
    * once the server holds it for this member, and `false` when another member has it, the
-   * client may only view, or the doc is not open. A lock is freed by `unlock()`, `close()`
-   * or a disconnect. A member holds at most 32 locks, each key at most 128 bytes.
+   * client may only view, the doc is not open, or the socket is down. A lock is freed by
+   * `unlock()`, `close()` or a disconnect; after a reconnect, call `lock()` again. A member
+   * holds at most 32 locks, each key at most 128 bytes.
    *
    * @example
    * ```ts
@@ -254,7 +255,12 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
   const ydoc = new Y.Doc();
   const core = new DocCore(def, ydoc);
   const docState = createDocState(core, onError);
-  const aware = createDocAwareness<AwarenessState<D>>(room, ydoc, onError);
+  const aware = createDocAwareness<AwarenessState<D>>({
+    room,
+    connection: options.connection,
+    ydoc,
+    onError,
+  });
 
   const status = createStore<DocStatus>('closed', onError);
   const access = createStore<Access | null>(null, onError);
@@ -436,10 +442,11 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
       pending.delete(info.n);
       if (bytes.length > 0) Y.applyUpdate(ydoc, bytes, FROM_SERVER);
 
-      // An earlier update was lost on the way: send everything the server lacks.
+      // An earlier update was lost on the way: nothing was undone, so sync again, which
+      // sends everything the server lacks.
       if (info.reason === OUT_OF_ORDER) void sync();
+      else refuse(info.reason);
 
-      refuse(info.reason);
       setStatus();
     }),
   ];
