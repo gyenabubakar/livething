@@ -45,6 +45,7 @@ export function setup(): void {
     <button data-testid="anchor-first">anchor-first</button>
     <button data-testid="server-drop">server-drop</button>
     <button data-testid="save-version">save-version</button>
+    <button data-testid="delete-oldest-version">delete-oldest-version</button>
     <button data-testid="restore-oldest-version">restore-oldest-version</button>
     <span data-testid="connection"></span>
     <span data-testid="status"></span>
@@ -237,6 +238,17 @@ export function setup(): void {
 
       el('version-title').textContent = (await board.versions.read(oldest.id)).title;
       await board.versions.restore(oldest.id);
+    } catch (error) {
+      append('errors', errorCode(error));
+    }
+  });
+  button('delete-oldest-version', async () => {
+    try {
+      const oldest = (await board.versions.list()).at(-1);
+      if (!oldest) return;
+
+      await board.versions.delete(oldest.id);
+      await showVersions();
     } catch (error) {
       append('errors', errorCode(error));
     }

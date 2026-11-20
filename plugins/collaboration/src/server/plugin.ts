@@ -14,6 +14,7 @@ import { docTypesByName } from '~/schema.ts';
 import { checkAwareness, wireAwareness } from '~/server/awareness.ts';
 import { DocRegistry } from '~/server/registry.ts';
 import {
+  deleteVersionInput,
   docDetail,
   labelProblem,
   nothing,
@@ -119,6 +120,11 @@ export interface CollaborationOptions<TDocs extends readonly DocDef[]> {
    * @default sqlStorage(ctx.sql): tables in the server's own SQL, on Node and Cloudflare.
    */
   readonly storage?: ServerStorage;
+  /**
+   * The most versions each doc keeps. A save that goes past it deletes the oldest versions of
+   * that doc. Default: no limit.
+   */
+  readonly maxVersions?: number;
 }
 
 /** One doc on the server, from `ctx.plugin('livething:collaboration').doc(type, id)`. */
@@ -148,7 +154,8 @@ export interface ServerDoc<D extends DocDef> {
 /** A doc's saved versions, for server and admin code. */
 export interface ServerVersions<D extends DocDef> {
   /**
-   * Save the doc as it is now.
+   * Save the doc as it is now. When the doc then has more than `maxVersions` versions, the
+   * oldest are deleted.
    *
    * @param label 1 to 200 characters, such as `'Nightly'`.
    * @param options `author`: the user shown as the one who saved it. Default `null`.
@@ -168,6 +175,11 @@ export interface ServerVersions<D extends DocDef> {
    * @throws `version-not-found` when the doc has no version with that ID.
    */
   restore(id: string): Promise<void>;
+  /**
+   * Delete a version. The doc and its other versions stay as they are.
+   * @throws `version-not-found` when the doc has no version with that ID.
+   */
+  delete(id: string): Promise<void>;
 }
 
 const REGISTRY = Symbol('livething.collaboration.registry');
@@ -300,9 +312,18 @@ interface Versions {
   list(doc: DocRef): Promise<readonly VersionInfo[]>;
   /** A version's state: one update that holds the whole doc as it was. */
   state(doc: DocRef, id: string): Promise<Uint8Array>;
+  delete(doc: DocRef, id: string): Promise<void>;
 }
 
-function versionsOf(registry: DocRegistry, storage: ServerStorage): Versions {
+function notFound(doc: DocRef, id: string) {
+  return VersionNotFound({ type: doc.type, id: doc.id, version: id });
+}
+
+function versionsOf(
+  registry: DocRegistry,
+  storage: ServerStorage,
+  maxVersions: number | undefined,
+): Versions {
   return {
     async save(doc, label, author) {
       const version: VersionInfo = {
@@ -313,15 +334,22 @@ function versionsOf(registry: DocRegistry, storage: ServerStorage): Versions {
       };
 
       await storage.saveVersion(doc, version, await registry.state(doc));
+      if (maxVersions !== undefined) {
+        const extra = (await storage.listVersions(doc)).slice(maxVersions);
+        for (const old of extra) await storage.deleteVersion(doc, old.id);
+      }
 
       return version;
+    },
+    async delete(doc, id) {
+      if (!(await storage.deleteVersion(doc, id))) throw notFound(doc, id);
     },
     async list(doc) {
       return storage.listVersions(doc);
     },
     async state(doc, id) {
       const state = await storage.readVersion(doc, id);
-      if (!state) throw VersionNotFound({ type: doc.type, id: doc.id, version: id });
+      if (!state) throw notFound(doc, id);
 
       return state;
     },
@@ -345,8 +373,9 @@ function versionDoc(state: Uint8Array): Y.Doc {
  * member leaves. Server and admin code reach the docs with
  * `ctx.plugin('livething:collaboration')` and `admin.plugin('livething:collaboration')`.
  *
- * @throws {LiveThingConfigError} When a doc type is listed twice, `docs` is empty, or
- * `saveDelayMs` is not a whole number of 0 or more.
+ * @throws {LiveThingConfigError} When a doc type is listed twice, `docs` is empty,
+ * `saveDelayMs` is not a whole number of 0 or more, or `maxVersions` is not a whole number of
+ * 1 or more.
  *
  * @example
  * ```ts
@@ -371,6 +400,13 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
   if (!Number.isInteger(saveDelayMs) || saveDelayMs < 0) {
     throw new LiveThingConfigError(
       'collaboration: `saveDelayMs` must be a whole number of 0 or more',
+    );
+  }
+
+  const { maxVersions } = options;
+  if (maxVersions !== undefined && (!Number.isInteger(maxVersions) || maxVersions < 1)) {
+    throw new LiveThingConfigError(
+      'collaboration: `maxVersions` must be a whole number of 1 or more',
     );
   }
 
@@ -556,6 +592,14 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
     run: async (ctx) => ({ versions: await stateOf(ctx).versions.list(docOf(ctx)) }),
   });
 
+  const handleDeleteVersion = docs.request('delete-version', {
+    input: deleteVersionInput,
+    async run(ctx, input) {
+      await stateOf(ctx).versions.delete(docOf(ctx, 'edit'), input.id);
+      return null;
+    },
+  });
+
   const handleReadVersion = docs.binary.request('read-version', {
     input: readVersionInfo,
     async run(ctx, info) {
@@ -578,6 +622,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
       handleUpdate,
       handleSaveVersion,
       handleListVersions,
+      handleDeleteVersion,
       handleReadVersion,
     ],
     api: (ctx) => {
@@ -611,7 +656,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
       const state: PluginState = {
         parts: new Parts(),
         registry,
-        versions: versionsOf(registry, storage),
+        versions: versionsOf(registry, storage, maxVersions),
       };
 
       const api: CollaborationApi<TDocs> = {
@@ -640,6 +685,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
               const version = versionDoc(await state.versions.state(ref, versionId));
               await registry.restore(ref, version);
             },
+            delete: (versionId) => state.versions.delete(ref, versionId),
           };
 
           return {

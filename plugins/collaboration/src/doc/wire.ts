@@ -17,8 +17,8 @@
 // - `ack`: the server took update `n`. It is live, and every member has it. If storing it
 //   failed, the server keeps the doc loaded and stores it later.
 // - `refused`: the server refused update `n`. The bytes undo it, when it was applied.
-// - `save-version` and `list-versions` (JSON requests): save the doc as it is now, and list
-//   the saved versions, newest first.
+// - `save-version`, `list-versions` and `delete-version` (JSON requests): save the doc as it is
+//   now, list the saved versions, newest first, and delete one.
 // - `read-version` (a binary request): the client names the version and a number `n`. The
 //   server sends the version's Yjs state as `version` messages with that `n`, in parts like an
 //   update, then answers with the version's info and no bytes.

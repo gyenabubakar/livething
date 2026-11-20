@@ -130,7 +130,7 @@ test.describe('collaboration', () => {
     await expect(alice.getByTestId('title')).toHaveText('Launch');
   });
 
-  test('a member saves a version and restores it for everyone, and undo takes it back', async ({
+  test('a member saves a version, restores it for everyone, undo takes it back, and deletes it', async ({
     browser,
   }, testInfo) => {
     const room = `collab-${testInfo.testId}`;
@@ -153,8 +153,15 @@ test.describe('collaboration', () => {
 
     await alice.getByTestId('undo').click();
     await expect(bob.getByTestId('title')).toHaveText('Final');
+
     await guest.getByTestId('save-version').click();
     await expect(guest.getByTestId('errors')).toHaveText('access-denied');
+    await guest.getByTestId('delete-oldest-version').click();
+    await expect(guest.getByTestId('errors')).toHaveText('access-denied,access-denied');
+
+    await alice.getByTestId('delete-oldest-version').click();
+    await expect(alice.getByTestId('versions')).toHaveText('');
+    await expect(alice.getByTestId('errors')).toHaveText('');
   });
 
   test('members see where the others are, and one member at a time holds a lock', async ({

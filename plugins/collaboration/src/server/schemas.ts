@@ -65,6 +65,13 @@ export const saveVersionInput = schema<{ label: string }>((value) => {
   return problem ? { problem } : { label: label as string };
 });
 
+/** The input of `delete-version`. */
+export const deleteVersionInput = schema<{ id: string }>((value) =>
+  isRecord(value) && typeof value.id === 'string'
+    ? { id: value.id }
+    : { problem: 'expected { id }' },
+);
+
 /** The info of `read-version`. */
 export const readVersionInfo = schema<ReadVersionInfo>((value) =>
   isRecord(value) && typeof value.id === 'string' && Number.isSafeInteger(value.n)

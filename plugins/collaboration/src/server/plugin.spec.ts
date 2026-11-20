@@ -71,6 +71,7 @@ function memoryStorage(docs = new Map<string, Uint8Array[]>()) {
     },
     listVersions: () => [...versions.values()].map((version) => version.info).reverse(),
     readVersion: (_doc, id) => versions.get(id)?.state ?? null,
+    deleteVersion: (_doc, id) => versions.delete(id),
     load(doc) {
       calls.push(`load ${doc.type}:${doc.id}`);
       return [...(docs.get(`${doc.type}:${doc.id}`) ?? [])];
@@ -756,8 +757,85 @@ describe('collaboration() on the server', () => {
       await expect(launch.versions.restore('v_none')).rejects.toMatchObject({
         code: 'version-not-found',
       });
+      await expect(launch.versions.delete('v_none')).rejects.toMatchObject({
+        code: 'version-not-found',
+        detail: { type: 'task-board', id: 'launch', version: 'v_none' },
+      });
       await expect(launch.versions.save('')).rejects.toThrow(/label/);
       await expect(launch.versions.save('x'.repeat(201))).rejects.toThrow(/label/);
+    });
+
+    it('deletes a version from server code, and leaves the doc and the other versions', async () => {
+      const { api } = await startServer();
+      const launch = api().doc('task-board', 'launch');
+      await launch.change((d) => {
+        d.title = 'Launch';
+      });
+      const draft = await launch.versions.save('Draft');
+      const final = await launch.versions.save('Final');
+
+      await launch.versions.delete(draft.id);
+
+      expect(await launch.versions.list()).toEqual([final]);
+      await expect(launch.versions.read(draft.id)).rejects.toMatchObject({
+        code: 'version-not-found',
+      });
+      expect((await launch.read()).title).toBe('Launch');
+    });
+
+    it('lets an editor delete a version, and refuses a viewer and a version ID it does not have', async () => {
+      const { engine, api } = await startServer();
+      const launch = api().doc('task-board', 'launch');
+      const draft = await launch.versions.save('Draft');
+      const amara = await member(engine, 'u_amara');
+      const guest = await member(engine, 'u_guest');
+
+      await guest.request('launch', 'delete-version', { id: draft.id });
+      const deleted = await amara.request('launch', 'delete-version', { id: draft.id });
+      await amara.request('launch', 'delete-version', { id: draft.id });
+      await amara.request('launch', 'delete-version', { version: draft.id });
+
+      expect(deleted?.info).toBeNull();
+      expect(await launch.versions.list()).toEqual([]);
+      expect(guest.errors().map((error) => error.code)).toEqual(['access-denied']);
+      expect(amara.errors()).toEqual([
+        expect.objectContaining({
+          code: 'version-not-found',
+          detail: { type: 'task-board', id: 'launch', version: draft.id },
+        }),
+        expect.objectContaining({ code: 'validation-failed' }),
+      ]);
+    });
+
+    it('keeps at most maxVersions versions of each doc, deleting the oldest on save', async () => {
+      const sql = testSql();
+      const { engine, api } = await startServer({ sql, maxVersions: 2 });
+      const launch = api().doc('task-board', 'launch');
+      const first = await launch.versions.save('First');
+      const second = await launch.versions.save('Second');
+
+      const amara = await member(engine, 'u_amara');
+
+      const third = (await amara.request('launch', 'save-version', { label: 'Third' }))!
+        .info as VersionInfo;
+      const fourth = await launch.versions.save('Fourth');
+      const other = await api().doc('task-board', 'retro').versions.save('Retro');
+
+      expect(await launch.versions.list()).toEqual([fourth, third]);
+      expect(await api().doc('task-board', 'retro').versions.list()).toEqual([other]);
+      for (const gone of [first, second]) {
+        await expect(launch.versions.read(gone.id)).rejects.toMatchObject({
+          code: 'version-not-found',
+        });
+      }
+
+      expect(
+        sql
+          .exec<{ id: string }>('SELECT DISTINCT id FROM livething_collaboration_version_parts')
+          .toArray()
+          .map((row) => row.id)
+          .sort(),
+      ).toEqual([fourth.id, third.id, other.id].sort());
     });
 
     it('lets an editor save a version as its author, and a viewer list and read them', async () => {
@@ -860,6 +938,18 @@ describe('collaboration() on the server', () => {
   });
 
   describe('setup', () => {
+    it('refuses a maxVersions that is not a whole number of 1 or more', () => {
+      function access() {
+        return 'edit' as const;
+      }
+
+      for (const maxVersions of [0, -1, 1.5, Number.NaN]) {
+        expect(() => collaboration({ docs: [taskBoard], access, maxVersions })).toThrow(
+          /maxVersions/,
+        );
+      }
+    });
+
     it('refuses a doc type listed twice, no doc types, and a bad saveDelayMs', () => {
       function access() {
         return 'edit' as const;

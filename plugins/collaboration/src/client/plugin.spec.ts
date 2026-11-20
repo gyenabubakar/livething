@@ -489,6 +489,23 @@ describe('collaboration() on the client', () => {
       expect((await guest.versions.read(saved.id)).title).toBe('Launch');
       await expect(guest.versions.save('Mine')).rejects.toMatchObject({ code: 'access-denied' });
       await expect(guest.versions.restore(saved.id)).rejects.toMatchObject({ code: 'read-only' });
+      await expect(guest.versions.delete(saved.id)).rejects.toMatchObject({
+        code: 'access-denied',
+      });
+    });
+
+    it('deletes a version', async () => {
+      const { network, api } = await huddle();
+      const launch = api().doc('task-board', 'launch');
+      const draft = await launch.versions.save('Draft');
+      const final = await launch.versions.save('Final');
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+
+      await amara.open();
+
+      await amara.versions.delete(draft.id);
+
+      expect(await amara.versions.list()).toEqual([final]);
     });
 
     it('rejects a version ID the doc does not have', async () => {
@@ -497,6 +514,9 @@ describe('collaboration() on the client', () => {
       await amara.open();
 
       await expect(amara.versions.read('v_none')).rejects.toMatchObject({
+        code: 'version-not-found',
+      });
+      await expect(amara.versions.delete('v_none')).rejects.toMatchObject({
         code: 'version-not-found',
       });
     });

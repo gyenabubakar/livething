@@ -15,6 +15,8 @@ export interface ServerStorage extends CollaborationStorage {
   listVersions(doc: DocRef): readonly VersionInfo[] | Promise<readonly VersionInfo[]>;
   /** The state of one version, or `null` when the doc has no version with that ID. */
   readVersion(doc: DocRef, id: string): Uint8Array | null | Promise<Uint8Array | null>;
+  /** Delete one version. Gives `false` when the doc has no version with that ID. */
+  deleteVersion(doc: DocRef, id: string): boolean | Promise<boolean>;
 }
 
 interface PartRow {
@@ -179,6 +181,19 @@ export function sqlStorage(sql: SQLProvider): ServerStorage {
         .toArray();
 
       return rows.length > 0 ? join(rows.map((row) => bytesOf(row.data))) : null;
+    },
+    deleteVersion(doc, id) {
+      setup();
+      const key = keyOf(doc);
+      return sql.transaction(() => {
+        const found = sql.exec(`SELECT 1 FROM ${VERSIONS} WHERE doc = ? AND id = ?`, key, id).one();
+        if (!found) return false;
+
+        sql.exec(`DELETE FROM ${VERSION_PARTS} WHERE doc = ? AND id = ?`, key, id);
+        sql.exec(`DELETE FROM ${VERSIONS} WHERE doc = ? AND id = ?`, key, id);
+
+        return true;
+      });
     },
   };
 }

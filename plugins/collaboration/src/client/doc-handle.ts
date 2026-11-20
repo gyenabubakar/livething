@@ -75,6 +75,7 @@ export interface DocRoom extends AwarenessRoom {
   };
   request(event: 'save-version', payload: { label: string }): Promise<VersionInfo>;
   request(event: 'list-versions', payload: null): Promise<{ versions: readonly VersionInfo[] }>;
+  request(event: 'delete-version', payload: { id: string }): Promise<null>;
 }
 
 /**
@@ -113,6 +114,13 @@ export interface DocVersions<D extends DocDef> {
    * @throws `read-only` for a `'view'` client, and `version-not-found` for an unknown ID.
    */
   restore(id: string): Promise<void>;
+  /**
+   * Delete a version from the server. The doc and its other versions stay as they are.
+   * Needs `'edit'` access.
+   *
+   * @throws `access-denied` for a `'view'` client, and `version-not-found` for an unknown ID.
+   */
+  delete(id: string): Promise<void>;
 }
 
 type Picker<D extends DocDef, T> = (path: PathOf<D['shape']>) => T | undefined;
@@ -558,6 +566,9 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
       checkCanEdit();
       const version = await readVersion(id);
       handle.change(() => restoreFrom(ydoc, version, def));
+    },
+    async delete(id) {
+      await room.request('delete-version', { id });
     },
   };
 
