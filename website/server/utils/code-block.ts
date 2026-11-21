@@ -14,6 +14,12 @@ const BLOCK_CSS = `
   --diffs-font-size: 14.5px;
   --diffs-line-height: 23px;
 }
+
+/* A prerendered block caps the code column at the visible width, so a long line scrolls past the
+   background of an added or removed line. Let the column grow to the longest line. */
+pre[data-overflow="scroll"][data-dehydrated] {
+  --diffs-code-grid: var(--diffs-grid-number-column-width) minmax(max-content, 1fr);
+}
 `
 
 // The icon sprite and the core stylesheet are 47 KB and the same for every block. They are served once
@@ -34,10 +40,24 @@ function withSharedAssets(html: string) {
     .replaceAll('href="#diffs-icon-', `href="${CODE_BLOCK_SPRITE_PATH}#diffs-icon-`)}`
 }
 
+// A blank context line is a single space, which editors strip as trailing whitespace. Inside a hunk an
+// empty line can only be that, so put the space back, or the whole diff fails to parse.
+function restoreBlankContextLines(code: string) {
+  let inHunk = false
+  return code
+    .split('\n')
+    .map((line) => {
+      if (line.startsWith('@@')) inHunk = true
+      else if (line.startsWith('diff --git')) inHunk = false
+      return inHunk && line === '' ? ' ' : line
+    })
+    .join('\n')
+}
+
 // A docs diff can be a sketch with no valid hunk headers. It then shows as a plain `diff` file.
 function parseDiff(code: string, name: string) {
   try {
-    return parsePatchFiles(code, name, true)[0]?.files[0]
+    return parsePatchFiles(restoreBlankContextLines(code), name, true)[0]?.files[0]
   } catch {
     return undefined
   }
