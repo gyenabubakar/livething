@@ -5,8 +5,8 @@ import Comments from './plugin-mocks/Comments.vue'
 import Feed from './plugin-mocks/Feed.vue'
 import Push from './plugin-mocks/Push.vue'
 
-// One animated preview per first-party plugin. Each preview plays only while it
-// is on screen.
+// One animated preview per first-party plugin, shared by the landing page and
+// the Cloudflare page. Each preview plays only while it is on screen.
 const mocks = {
   chat: Chat,
   push: Push,

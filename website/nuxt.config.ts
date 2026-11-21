@@ -48,16 +48,16 @@ export default defineNuxtConfig({
 
   routeRules: {
     '/': { prerender: true },
+    '/cloudflare': { prerender: true },
   },
 
   nitro: {
     prerender: {
       crawlLinks: true,
-      routes: ['/'],
+      routes: ['/', '/cloudflare'],
       // A page that fails to render (a code block that could not be highlighted, a broken
       // link) fails the build instead of shipping broken.
-      failOnError: true,
-      // Cap parallelism so the OG-image (satori/resvg) renders don't swamp the
+      failOnError: true,      // Cap parallelism so the OG-image (satori/resvg) renders don't swamp the
       // worker pool and time out — the heavy OG template needs breathing room.
       concurrency: 3,
     },
