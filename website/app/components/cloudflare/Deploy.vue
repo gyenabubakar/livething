@@ -68,7 +68,7 @@ useIllustration(terminal, () => createTimeline({ loop: true, autoplay: false, lo
           </button>
         </li>
       </ol>
-      <NuxtLink to="/server/adapters/cloudflare" class="group mt-8 inline-flex w-fit items-center gap-1.5 font-mono text-xs text-primary">
+      <NuxtLink to="/core/runtimes/adapters/cloudflare" class="group mt-8 inline-flex w-fit items-center gap-1.5 font-mono text-xs text-primary">
         <span class="border-b border-primary/40 pb-0.5 group-hover:border-primary">Read the Cloudflare guide</span>
         <UIcon name="i-ph-arrow-right" class="size-3.5 transition-transform group-hover:translate-x-0.5" />
       </NuxtLink>

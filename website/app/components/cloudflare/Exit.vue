@@ -82,7 +82,7 @@ const changes = [
           </ul>
         </div>
       </div>
-      <NuxtLink to="/server/adapters/overview" class="group mt-8 inline-flex w-fit items-center gap-1.5 font-mono text-xs text-primary">
+      <NuxtLink to="/core/runtimes/adapters/overview" class="group mt-8 inline-flex w-fit items-center gap-1.5 font-mono text-xs text-primary">
         <span class="border-b border-primary/40 pb-0.5 group-hover:border-primary">See every adapter</span>
         <UIcon name="i-ph-arrow-right" class="size-3.5 transition-transform group-hover:translate-x-0.5" />
       </NuxtLink>

@@ -3,7 +3,9 @@
   "name": "livething",
   "compatibility_date": "2026-06-01",
   "assets": {
-    "directory": "./.output/public"
+    "directory": "./.output/public",
+    // A path with no page gets the site's own 404 page, not a blank one.
+    "not_found_handling": "404-page"
   },
   "observability": {
     "enabled": true
