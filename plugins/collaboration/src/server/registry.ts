@@ -355,17 +355,20 @@ export class DocRegistry {
     if (!def) throw new Error(`no doc type '${ref.type}'`);
 
     const updates = await this.options.storage.load(ref);
-    const ydoc = new Y.Doc();
+    let ydoc = new Y.Doc();
     // A stored update that does not apply (written by another version, or broken) must not
     // stop the doc from opening: report it, and load the rest. Yjs applies an update as it
-    // reads it, so a broken one is read whole first: half an edit must not go in, as the
-    // schema could then refuse the doc on every read.
+    // reads it, so one that throws may be half in: build the doc again from the updates that
+    // applied whole. Half an edit could make the schema refuse the doc on every read.
+    const applied: Uint8Array[] = [];
     for (const update of updates) {
       try {
-        Y.decodeUpdate(update);
         Y.applyUpdate(ydoc, update);
+        applied.push(update);
       } catch (error) {
         this.options.reportError(`a stored update of '${keyOf(ref)}' does not apply`, error);
+        ydoc = new Y.Doc();
+        for (const good of applied) Y.applyUpdate(ydoc, good);
       }
     }
 

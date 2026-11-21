@@ -107,12 +107,38 @@ describe('DocRegistry loading', () => {
 
     const snapshot = await registry.read(launch);
 
-    // The doc opens with what applied; the server no longer stores such updates.
-    expect((snapshot as { title: string }).title).toContain('Launch');
+    // The doc opens with the updates that apply whole, and no part of the broken one.
+    expect((snapshot as { title: string }).title).toBe('Launch');
     expect(errors).toHaveLength(1);
     await registry.with(launch, (doc) => {
       expect(doc.core.ydoc.store.pendingStructs).toBeNull();
     });
+  });
+
+  it('skips a stored update cut off at the end whole, not just the part after the cut', async () => {
+    const writer = open(taskBoard);
+    writer.change((d) => {
+      d.title = 'Launch';
+    });
+    const first = Y.encodeStateAsUpdate(writer.ydoc);
+    const before = Y.encodeStateVector(writer.ydoc);
+    writer.change((d) => {
+      d.title = 'Launch plan';
+    });
+
+    const second = Y.encodeStateAsUpdate(writer.ydoc, before);
+    const errors: string[] = [];
+    const registry = new DocRegistry({
+      defs: new Map([[taskBoard.name, taskBoard]]),
+      storage: { load: () => [first, second.slice(0, -1)], append() {}, compact() {} },
+      broadcast() {},
+      members: () => 1,
+      saveDelayMs: 10,
+      reportError: (message) => errors.push(message),
+    });
+
+    expect((await registry.read(launch)).title).toBe('Launch');
+    expect(errors).toEqual([expect.stringMatching(/does not apply/)]);
   });
 });
 
@@ -361,34 +387,6 @@ describe('DocRegistry.flush()', () => {
     const ydoc = new Y.Doc();
     for (const update of stored) Y.applyUpdate(ydoc, update);
     expect(open(taskBoard, ydoc).state.get().title).toBe('Sent during the save');
-  });
-});
-
-describe('DocRegistry, loading', () => {
-  it('skips a stored update cut off at the end whole, not just the part after the cut', async () => {
-    const writer = open(taskBoard);
-    writer.change((d) => {
-      d.title = 'Launch';
-    });
-    const first = Y.encodeStateAsUpdate(writer.ydoc);
-    const before = Y.encodeStateVector(writer.ydoc);
-    writer.change((d) => {
-      d.title = 'Launch plan';
-    });
-
-    const second = Y.encodeStateAsUpdate(writer.ydoc, before);
-    const errors: string[] = [];
-    const registry = new DocRegistry({
-      defs: new Map([[taskBoard.name, taskBoard]]),
-      storage: { load: () => [first, second.slice(0, -1)], append() {}, compact() {} },
-      broadcast() {},
-      members: () => 1,
-      saveDelayMs: 10,
-      reportError: (message) => errors.push(message),
-    });
-
-    expect((await registry.read(launch)).title).toBe('Launch');
-    expect(errors).toEqual([expect.stringMatching(/does not apply/)]);
   });
 });
 
