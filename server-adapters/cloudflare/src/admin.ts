@@ -437,6 +437,14 @@ const RESERVED_PLUGIN_METHODS: ReadonlySet<string> = new Set([
 const pluginTargets = new WeakMap<object, RpcTarget>();
 
 /**
+ * The `constructor` every class prototype holds: the class itself, not an api method. A
+ * method someone named `constructor` is not one, so it gets the reserved-name error.
+ */
+function isClassConstructor(key: string, level: object, method: unknown): boolean {
+  return key === 'constructor' && (method as { prototype?: unknown }).prototype === level;
+}
+
+/**
  * Put a plugin api's methods on an `RpcTarget`. Workers RPC only carries what is on a
  * class's prototype chain, so each method becomes a prototype method that calls the api.
  */
@@ -452,8 +460,7 @@ function pluginTarget(id: string, api: unknown): RpcTarget {
     for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(level))) {
       // A getter is read from its descriptor, so it never runs.
       const method: unknown = descriptor.value;
-      // A class's own `constructor` on its prototype is the class, not an api method.
-      if (typeof method !== 'function' || (key === 'constructor' && level !== api)) continue;
+      if (typeof method !== 'function' || isClassConstructor(key, level, method)) continue;
 
       if (RESERVED_PLUGIN_METHODS.has(key)) {
         throw new Error(

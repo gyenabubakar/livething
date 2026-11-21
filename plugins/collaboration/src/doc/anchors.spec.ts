@@ -83,6 +83,23 @@ describe('text anchors', () => {
     );
   });
 
+  it('stay on their words when an empty block next to them is deleted', () => {
+    const board = seed();
+    const notes = board.yjs.at((p) => p.tasks[0]?.notes);
+    const blocks = ['Hello', '', 'World'].map((line) => {
+      const paragraph = new Y.XmlElement('paragraph');
+      paragraph.insert(0, [new Y.XmlText(line)]);
+      return paragraph;
+    });
+    board.change(() => notes.insert(0, blocks));
+    // "Hello\n\nWorld": the range starts on the line break before the empty block.
+    const anchor = board.anchor.text((p) => p.tasks[0]?.notes, { from: 5, to: 12 });
+
+    board.change(() => notes.delete(1, 1));
+
+    expect(board.anchor.watch(anchor).get()).toEqual({ from: 6, to: 11, text: 'World' });
+  });
+
   it('refuse a range that is empty or out of the text', () => {
     const board = seed();
     expect(() => board.anchor.text((p) => p.tasks[0]?.title, { from: 3, to: 3 })).toThrow(

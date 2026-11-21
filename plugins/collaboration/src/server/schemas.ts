@@ -1,4 +1,4 @@
-import { wellFormed } from '~/doc/values.ts';
+import { wellFormed } from '~/doc/storable.ts';
 import { MAX_LABEL } from '~/doc/wire.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { ReadVersionInfo, UpdateInfo } from '~/doc/wire.ts';

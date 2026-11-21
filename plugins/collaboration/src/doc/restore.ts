@@ -237,7 +237,8 @@ function match(target: Y.AbstractType<any>, source: Y.AbstractType<any>): void {
   for (const [key, value] of source.entries()) {
     const current: unknown = target.get(key);
     if (!(value instanceof Y.AbstractType)) {
-      if (!sameValue(current, value)) target.set(key, value);
+      // A stored `undefined` is still an entry, so `has()` must find it.
+      if (!target.has(key) || !sameValue(current, value)) target.set(key, value);
     } else if (current instanceof Y.AbstractType && current.constructor === value.constructor) {
       match(current, value);
     } else {

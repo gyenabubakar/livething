@@ -468,18 +468,23 @@ describe('writing', () => {
     expect(board.state.get().extra).toEqual({ x: 'ok' });
   });
 
-  it('refuses a schema whose output is not JSON or bytes, such as a Date', () => {
+  it('refuses a write whose schema output is not JSON or bytes, such as a Date', () => {
     const dated = doc('dated', {
+      // No due date is '', which stays a string; a written date becomes a Date.
       due: v.optional(
         v.pipe(
           v.string(),
-          v.transform((text) => new Date(text)),
+          v.transform((text) => (text === '' ? '' : new Date(text))),
         ),
-        '2026-01-01',
+        '',
       ),
     });
+    const board = open(dated);
 
-    expect(() => open(dated).state.get()).toThrow();
+    expect(() => board.change((d) => void (d.due = '2026-01-01' as never))).toThrow(
+      expect.objectContaining({ code: 'invalid-change' }),
+    );
+    expect(board.state.get().due).toBe('');
   });
 
   it('refuses a value that is not JSON', () => {

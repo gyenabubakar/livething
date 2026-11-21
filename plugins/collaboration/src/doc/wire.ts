@@ -23,7 +23,7 @@
 //   server sends the version's Yjs state as `version` messages with that `n`, in parts like an
 //   update, then answers with the version's info and no bytes.
 
-import { wellFormed } from '~/doc/values.ts';
+import { wellFormed } from '~/doc/storable.ts';
 
 /** The plugin's ID, and the namespace of its wire names. */
 export const PLUGIN_ID = 'livething:collaboration';

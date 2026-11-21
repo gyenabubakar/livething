@@ -1,7 +1,8 @@
 /**
  * Rules on what a package entry loads, however far down the import is. They follow imports
- * all the way, so they need a graph without `import type` edges (which ship no code) and with
- * the packages in it. The main config keeps both the other way round, so these live here.
+ * all the way, into packages too, so they need a graph without `import type` edges (which
+ * ship no code) that resolves each package to its JavaScript, not its `.d.ts`. The main
+ * config does neither, so these live here.
  */
 
 const base = require('./.dependency-cruiser.cjs');
@@ -24,5 +25,8 @@ module.exports = {
     ...base.options,
     tsPreCompilationDeps: false,
     exclude: { path: '\\.(spec|test|test-d|bench)\\.ts$' },
+    // Follow into packages, so Yjs that another package imports is seen too.
+    doNotFollow: { path: '^$' },
+    enhancedResolveOptions: { ...base.options.enhancedResolveOptions, conditionNames: ['import'] },
   },
 };

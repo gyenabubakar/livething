@@ -89,13 +89,15 @@ export interface HarnessOptions extends Partial<CollaborationOptions<Docs>> {
   readonly sql?: SQLProvider & { db: DatabaseSync };
   /** The largest frame the server may send. Default: the engine's 32 MiB. */
   readonly sendBytes?: number;
+  /** The largest frame the server takes, as a Node host can raise it. Default: 32 MiB. */
+  readonly receiveBytes?: number;
 }
 
 /** Every user can edit, except a guest, who views, and an outsider, who is refused. */
 const ACCESS: Record<string, DocAccess> = { u_guest: 'view', u_out: false };
 
 /** Huddle's server definition: channels and the Collaboration plugin. */
-function huddleDefinition(options: Omit<HarnessOptions, 'sql' | 'sendBytes'>) {
+function huddleDefinition(options: Omit<HarnessOptions, 'sql' | 'sendBytes' | 'receiveBytes'>) {
   const { hibernation, ...pluginOptions } = options;
   const Collaboration = collaboration({
     docs,
@@ -116,7 +118,7 @@ export type HuddleClient = InferClient<ReturnType<typeof huddleDefinition>>;
 
 /** A running server with the Collaboration plugin for Huddle's task board. */
 export async function startServer(options: HarnessOptions = {}) {
-  const { hibernation, sql = testSql(), sendBytes } = options;
+  const { hibernation, sql = testSql(), sendBytes, receiveBytes } = options;
   const definition = huddleDefinition(options);
 
   const logged: unknown[][] = [];
@@ -138,7 +140,14 @@ export async function startServer(options: HarnessOptions = {}) {
     setup(createEngine) {
       engine = createEngine({
         storage: { sql, kv: testKv() },
-        ...(sendBytes ? { messageLimits: { receiveBytes: 32 * 1024 * 1024, sendBytes } } : {}),
+        ...(sendBytes || receiveBytes
+          ? {
+              messageLimits: {
+                receiveBytes: receiveBytes ?? 32 * 1024 * 1024,
+                sendBytes: sendBytes ?? 32 * 1024 * 1024,
+              },
+            }
+          : {}),
         timers: { setAlarm: async () => {}, deleteAlarm: async () => {} },
         platform: {},
         logger: { info: () => {}, warn: () => {}, error: (...args) => logged.push(args) },

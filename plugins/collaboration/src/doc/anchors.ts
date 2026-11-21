@@ -70,13 +70,15 @@ function textOf(type: Y.AbstractType<any>) {
     holdsText: (from: number, to: number) =>
       runs.some((run) => run.start < to && run.start + run.node.length > from),
     // An offset on a line break between blocks belongs to the next text (start) or the
-    // previous one (end), so an anchor never sits on the break itself.
+    // previous one (end), so an anchor never sits on the break itself. Nor on an empty block:
+    // deleting a blank line must not lose an anchor on the words next to it.
     position(offset: number, assoc: number) {
-      const backwards = [...runs].reverse();
+      const filled = runs.filter((r) => r.node.length > 0);
+      const backwards = [...filled].reverse();
       const run =
         assoc >= 0
-          ? (runs.find((r) => offset < r.start + r.node.length && offset >= r.start) ??
-            runs.find((r) => r.start >= offset))
+          ? (filled.find((r) => offset < r.start + r.node.length && offset >= r.start) ??
+            filled.find((r) => r.start >= offset))
           : (backwards.find((r) => offset > r.start && offset <= r.start + r.node.length) ??
             backwards.find((r) => r.start + r.node.length <= offset));
       if (!run) return null;

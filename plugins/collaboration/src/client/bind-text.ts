@@ -1,4 +1,5 @@
-import { setText, toWellFormed } from '~/doc/values.ts';
+import { toWellFormed } from '~/doc/storable.ts';
+import { setText } from '~/doc/values.ts';
 import type * as Y from 'yjs';
 
 /** What `bindText` needs from an input: an `<input>` or a `<textarea>` has it all. */
@@ -131,15 +132,18 @@ export function bindText(input: TextInput, ytext: Y.Text, doc: EditableDoc): () 
       if (inserted) ytext.insert(from, inserted);
     });
 
+    // With no edit from others meanwhile, the input already shows the doc, cursor and all.
     const text = ytext.toString();
-    if (input.value === text) return;
+    if (deltas.length === 0 && input.value === text) return;
 
     // Nothing composed: keep the cursor on its character. Else put it after the new text.
+    // The change above already showed the text, with the cursor moved by its own edit only,
+    // so the cursor is set here either way.
     const cursor =
       typed === shown
         ? deltas.reduce((index, delta) => moveIndex(index, delta), input.selectionStart ?? 0)
         : from + inserted.length;
-    input.value = text;
+    if (input.value !== text) input.value = text;
     input.setSelectionRange(cursor, cursor);
   }
 

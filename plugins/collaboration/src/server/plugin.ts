@@ -243,6 +243,13 @@ class Parts {
     const { connection, room } = sender;
     if (!info.part) {
       this.drop(sender);
+      // The host's receive limit can be set higher than this.
+      if (bytes.length > MAX_UPDATE_BYTES) {
+        throw InvalidMessage({
+          reason: `an update a client sends can be at most ${MAX_UPDATE_BYTES} bytes`,
+        });
+      }
+
       return bytes;
     }
 

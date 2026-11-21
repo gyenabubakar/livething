@@ -1,5 +1,5 @@
 import { restoreFrom } from '~/doc/restore.ts';
-import { doc } from '~/schema.ts';
+import { doc, record } from '~/schema.ts';
 import { ids, open, seed, task, taskBoard } from '~/test/task-board.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -139,6 +139,19 @@ describe('restoreFrom', () => {
 
       expect(notes.toJSON()).toBe(expected);
     }
+  });
+
+  it('brings back a record entry that held undefined', () => {
+    const reminders = doc('reminders', { snoozed: record(v.optional(v.number())) });
+    const board = open(reminders);
+    board.change((d) => d.snoozed.set('t1', undefined));
+    const version = new Y.Doc();
+    Y.applyUpdate(version, Y.encodeStateAsUpdate(board.ydoc));
+
+    board.change((d) => d.snoozed.delete('t1'));
+    board.change(() => restoreFrom(board.yjs.doc, version, reminders));
+
+    expect(Object.keys(board.state.get().snoozed)).toEqual(['t1']);
   });
 
   it('tells [undefined] and [null] apart when it restores a value', () => {

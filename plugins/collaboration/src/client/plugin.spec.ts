@@ -2,14 +2,16 @@ import 'fake-indexeddb/auto';
 
 import { indexedDbStorage } from '~/client/indexeddb.ts';
 import { collaboration } from '~/client/plugin.ts';
+import { sqlStorage } from '~/server/storage.ts';
 import { huddleClient, until } from '~/test/client.ts';
 import { memoryNetwork } from '~/test/network.ts';
-import { startServer } from '~/test/server.ts';
+import { startServer, testSql } from '~/test/server.ts';
 import { task, taskBoard } from '~/test/task-board.ts';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import type { TextInput } from '~/client/bind-text.ts';
 import type { CollaborationStorage, DocRef } from '~/doc/storage.ts';
+import type { ServerStorage } from '~/server/storage.ts';
 
 /** A server with a seeded launch board, and a network to reach it. */
 async function huddle() {
@@ -954,6 +956,40 @@ describe('collaboration() on the client', () => {
       }
     });
 
+    it('syncs again by itself when the sync after a reconnect fails once', async () => {
+      const sql = testSql();
+      const stored = sqlStorage(sql);
+      let failNextLoad = false;
+      const storage: ServerStorage = {
+        ...stored,
+        load(doc) {
+          if (!failNextLoad) return stored.load(doc);
+
+          failNextLoad = false;
+          throw new Error('the database is busy');
+        },
+      };
+
+      const server = await startServer({ sql, storage });
+
+      const network = memoryNetwork(server.engine);
+      const errors: unknown[] = [];
+      const amara = huddleClient(network, 'u_amara', {
+        onError: (error) => errors.push(error),
+      }).collab.doc('task-board', 'launch');
+      await amara.open();
+
+      network.goOffline();
+      await until(() => amara.status.get() === 'offline');
+      // The server unloads the doc once its last member left, so the rejoin loads it again.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      failNextLoad = true;
+      network.goOnline();
+
+      await until(() => errors.length === 1);
+      await until(() => amara.status.get() === 'synced');
+    });
+
     it('tells onRefused when a viewer loads edits from the device that the server never got', async () => {
       let role: 'edit' | 'view' = 'edit';
       const server = await startServer({ access: () => role });
@@ -1300,6 +1336,8 @@ describe('collaboration() on the client', () => {
       input.fire('compositionend');
 
       expect(input.value).toBe('Big Launch 日本');
+      // The cursor goes after the composed text, where it is now.
+      expect([input.selectionStart, input.selectionEnd]).toEqual([13, 13]);
       await until(() => kofi.state.get().title === 'Big Launch 日本');
     });
 

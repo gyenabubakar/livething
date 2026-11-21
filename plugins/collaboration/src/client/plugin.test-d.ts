@@ -1,6 +1,7 @@
 import { collaboration } from '~/client/plugin.ts';
 import { doc, text } from '~/schema.ts';
 import { taskBoard } from '~/test/task-board.ts';
+import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vitest';
 import type { CollaborationClient } from '~/client/plugin.ts';
 import type { Access } from '~/doc/wire.ts';
@@ -10,6 +11,19 @@ const meetingNotes = doc('meeting-notes', { body: text() });
 const HuddleCollaboration = collaboration({ docs: [taskBoard, meetingNotes] });
 declare const collab: CollaborationClient<readonly [typeof taskBoard, typeof meetingNotes]>;
 declare const input: HTMLInputElement;
+const standup = doc(
+  'standup',
+  { notes: text() },
+  {
+    awareness: v.object({
+      speakingFor: v.pipe(
+        v.string(),
+        v.transform((seconds) => Number(seconds)),
+      ),
+    }),
+  },
+);
+declare const standups: CollaborationClient<readonly [typeof standup]>;
 
 describe('the client plugin types', () => {
   it('types a doc handle by its doc type name', () => {
@@ -37,6 +51,17 @@ describe('the client plugin types', () => {
 
     // @ts-expect-error viewingTaskId is a string or null
     board.awareness.update({ viewingTaskId: 3 });
+  });
+
+  it('types awareness by what the schema takes, since members get what was sent', () => {
+    const meeting = standups.doc('standup', 'monday');
+
+    meeting.awareness.update({ speakingFor: '30' });
+    // @ts-expect-error the schema takes a string; its output is never sent
+    meeting.awareness.update({ speakingFor: 30 });
+    expectTypeOf(meeting.awareness.self.get()!.state).toEqualTypeOf<{
+      speakingFor: string;
+    } | null>();
   });
 
   it('binds text inputs only to text fields', () => {

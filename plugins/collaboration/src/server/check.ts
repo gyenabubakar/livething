@@ -1,6 +1,6 @@
 import { LiveThingError } from '@livething/core';
 import { Snapshots } from '~/doc/snapshot.ts';
-import { isStorable } from '~/doc/values.ts';
+import { isStorable } from '~/doc/storable.ts';
 import { OUT_OF_ORDER } from '~/doc/wire.ts';
 import { kindOf } from '~/schema.ts';
 import * as Y from 'yjs';

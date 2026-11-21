@@ -264,45 +264,65 @@ export class DocRegistry {
    * the shutdown, so this gives up after `FLUSH_TIMEOUT_MS` and logs it.
    */
   async flush(): Promise<void> {
-    // The wait for docs still loading is inside the time limit too: a load can hang as well.
-    const done = Promise.allSettled(this.docs.values())
-      .then((loaded) =>
-        Promise.all(
-          loaded.map(async (result) => {
-            if (result.status !== 'fulfilled') return;
-
-            const doc = result.value;
-            await doc.writes;
-            // A write failed earlier, so storage misses edits the doc holds: store the whole doc.
-            if (doc.unstored) {
-              doc.writes = doc.writes.then(() => this.write(doc, null));
-              await doc.writes;
-            }
-
-            // A save may queue behind the one running: wait until none is left.
-            while (doc.saving) await doc.saving;
-            if (!doc.saveTimer) return;
-
-            clearTimeout(doc.saveTimer);
-            doc.saveTimer = null;
-            await this.save(doc);
-          }),
-        ),
-      )
-      .then(() => true);
+    // Members stay connected while plugins shut down, so a change can come in during a pass,
+    // such as while an `onSave` runs: pass again until a pass leaves nothing to do.
+    let timedOut = false;
+    const done = (async () => {
+      while (!timedOut && (await this.flushPass()));
+      return true;
+    })();
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<boolean>((resolve) => {
       timer = setTimeout(() => resolve(false), FLUSH_TIMEOUT_MS);
     });
     const finished = await Promise.race([done, late]);
+    timedOut = !finished;
     clearTimeout(timer);
+
     if (!finished) {
       this.options.reportError(
         `the server stopped before every doc was stored and saved, after ${FLUSH_TIMEOUT_MS} ms`,
         null,
       );
     }
+  }
+
+  /**
+   * One pass of {@link flush}: store and save every doc. Gives whether work came in while it
+   * ran: a doc that loaded, or a write or save that was queued since.
+   */
+  private async flushPass(): Promise<boolean> {
+    // The wait for docs still loading is inside the time limit too: a load can hang as well.
+    const loaded = await Promise.allSettled(this.docs.values());
+    const docs = loaded.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
+    const awaited = new Map<OpenDoc, Promise<void>>();
+    await Promise.all(
+      docs.map(async (doc) => {
+        await doc.writes;
+        // A write failed earlier, so storage misses edits the doc holds: store the whole doc.
+        if (doc.unstored) {
+          doc.writes = doc.writes.then(() => this.write(doc, null));
+          await doc.writes;
+        }
+
+        awaited.set(doc, doc.writes);
+        // A save may queue behind the one running: wait until none is left.
+        while (doc.saving) await doc.saving;
+        if (!doc.saveTimer) return;
+
+        clearTimeout(doc.saveTimer);
+        doc.saveTimer = null;
+        await this.save(doc);
+      }),
+    );
+
+    return (
+      this.docs.size > loaded.length ||
+      docs.some(
+        (doc) => doc.writes !== awaited.get(doc) || doc.unstored || doc.saving || doc.saveTimer,
+      )
+    );
   }
 
   /** Nothing needs the doc: no call, no member, and no `onSave` running or queued. */

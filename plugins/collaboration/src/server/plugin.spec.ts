@@ -333,6 +333,20 @@ describe('collaboration() on the server', () => {
       expect(amara.board.state.get().title).toBe(title);
     });
 
+    it('refuses one update over 32 MiB sent whole, as it does one sent in parts', async () => {
+      const { engine } = await startServer({ receiveBytes: 64 * 1024 * 1024 });
+      const amara = await member(engine, 'u_amara');
+
+      await amara.update('launch', { n: 1 }, new Uint8Array(32 * 1024 * 1024 + 1));
+
+      expect(amara.errors()).toEqual([
+        expect.objectContaining({
+          code: 'invalid-message',
+          detail: { reason: 'an update a client sends can be at most 33554432 bytes' },
+        }),
+      ]);
+    });
+
     it('holds at most 32 MiB of waiting parts for one connection, across rooms', async () => {
       const { engine } = await startServer();
       const amara = await member(engine, 'u_amara');

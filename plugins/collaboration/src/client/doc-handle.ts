@@ -33,6 +33,10 @@ const FROM_DEVICE = Symbol('livething.collaboration.device');
 /** Compact a doc's updates on the device into one after this many. */
 const COMPACT_AFTER_UPDATES = 200;
 
+/** How often a failed sync after a reconnect is tried again, and the first wait before it. */
+const SYNC_RETRIES = 3;
+const SYNC_RETRY_MS = 250;
+
 /** Where a doc is: not open, joining, in step with the server, sending changes, or offline. */
 export type DocStatus = 'closed' | 'opening' | 'synced' | 'saving' | 'offline';
 
@@ -136,9 +140,13 @@ export interface DocVersions<D extends DocDef> {
 
 type Picker<D extends DocDef, T> = (path: PathOf<D['shape']>) => T | undefined;
 type AwarenessOf<D extends DocDef> = D extends { awareness?: infer S } ? NonNullable<S> : never;
+/**
+ * A member's state as the schema takes it. The server checks it but does not transform it,
+ * so the members get what was sent.
+ */
 type AwarenessState<D extends DocDef> =
-  AwarenessOf<D> extends { '~standard': { types?: { output: infer O } } }
-    ? O
+  AwarenessOf<D> extends { '~standard': { types?: { input: infer I } } }
+    ? I
     : Record<string, never>;
 
 /**
@@ -454,6 +462,25 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     setStatus();
   }
 
+  let syncRetries = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Sync again after the sync `failed` failed, such as on a short server error, waiting a
+   * little longer each time. After the last try the doc stays offline until the next join.
+   */
+  function retrySync(failed: number): void {
+    if (syncRetries >= SYNC_RETRIES) return;
+
+    const delay = SYNC_RETRY_MS * 2 ** syncRetries;
+    syncRetries += 1;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      // A join or a close since then started its own sync, or ended the doc.
+      if (active && failed === syncs && room.status.get() === 'subscribed') void sync();
+    }, delay);
+  }
+
   async function sync(): Promise<void> {
     syncs += 1;
     const generation = syncs;
@@ -474,11 +501,18 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
       if (generation !== syncs) return;
 
       // The first sync failed: `open()` fails, and the doc closes. A later one: report it,
-      // and the next join syncs again.
-      if (opening) stop(error);
-      else onError(error);
+      // and try again, as the room stays joined and no join would sync again.
+      if (opening) {
+        stop(error);
+      } else {
+        onError(error);
+        retrySync(generation);
+      }
+
       return;
     }
+
+    syncRetries = 0;
 
     if (generation !== syncs || !active) return;
 
@@ -616,7 +650,9 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
    */
   function stop(error: unknown): void {
     if (lingering) clearTimeout(lingering);
+    if (retryTimer) clearTimeout(retryTimer);
 
+    retryTimer = null;
     lingering = null;
     active = false;
 

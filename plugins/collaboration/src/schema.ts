@@ -1,4 +1,5 @@
 import { LiveThingConfigError } from '@livething/core';
+import { isStorable } from '~/doc/storable.ts';
 import { isThenable } from '~/doc/thenable.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as Y from 'yjs';
@@ -331,6 +332,13 @@ function checkDefault(schema: Leaf, where: Where): void {
   if (result.issues) {
     throw new LiveThingConfigError(
       `${context}: '${path}' needs a default, because a new doc starts empty. For example: v.optional(v.boolean(), false).`,
+    );
+  }
+
+  // Every read gives the schema's output, so a default a doc can't hold would fail each read.
+  if (!isStorable(result.value, 0)) {
+    throw new LiveThingConfigError(
+      `${context}: '${path}': its default must be JSON or bytes, such as a number or a string for a date`,
     );
   }
 }

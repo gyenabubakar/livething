@@ -1,5 +1,6 @@
 import { liveIds, nestedList, rootList, rootType, valuesMap } from '~/doc/layout.ts';
-import { checkString, hasHoles, invalidChange, richTextFrom, writeValue } from '~/doc/values.ts';
+import { hasHoles } from '~/doc/storable.ts';
+import { checkString, invalidChange, richTextFrom, writeValue } from '~/doc/values.ts';
 import { kindOf } from '~/schema.ts';
 import * as Y from 'yjs';
 import type { ListParts } from '~/doc/layout.ts';

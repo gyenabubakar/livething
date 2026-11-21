@@ -1367,6 +1367,20 @@ describe('LiveThingDurableObject admin()', () => {
     },
   );
 
+  it("refuses a method named constructor on an api's prototype, not only on the api itself", async () => {
+    fake = makeFakeEngine();
+    fake.adminApi.plugin = () => Object.create({ constructor: vi.fn() }) as object;
+    const Cls = bind({} as never) as unknown as new (
+      ctx: DurableObjectState,
+      env: unknown,
+    ) => DOInstance;
+    const admin = await new Cls(makeFakeDOState() as unknown as DurableObjectState, {}).admin();
+
+    expect(() => (admin.plugin as (id: string) => unknown)('acme:polls')).toThrow(
+      /plugin 'acme:polls' has an api method named 'constructor'/,
+    );
+  });
+
   it('wakes hibernated sockets before building the admin surface', async () => {
     const { state } = await adminOf({ hibernation: true });
     expect(state.getWebSockets).toHaveBeenCalled();

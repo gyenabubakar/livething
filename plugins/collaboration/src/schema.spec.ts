@@ -1,6 +1,7 @@
 import { LiveThingConfigError } from '@livething/core';
 import { doc, list, record, richText, text } from '~/schema.ts';
 import { checkAwareness } from '~/server/awareness.ts';
+import { open } from '~/test/task-board.ts';
 import { type } from 'arktype';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -79,6 +80,18 @@ describe('doc()', () => {
     ['arktype', type('boolean | undefined').pipe((value) => value ?? false)],
   ])('takes a %s value at the top with a default', (_, schema) => {
     expect(doc('notes', { pinned: schema }).shape.pinned).toBe(schema);
+  });
+
+  it('takes an optional value at the top with no default, which reads as undefined', () => {
+    const tasks = doc('tasks', { dueAt: v.optional(v.number()) });
+
+    expect(open(tasks).state.get().dueAt).toBeUndefined();
+  });
+
+  it('refuses a default whose schema output is not JSON or bytes, such as a Date', () => {
+    expect(() => doc('tasks', { dueAt: v.optional(v.date(), () => new Date(0)) })).toThrow(
+      /'dueAt': its default must be JSON or bytes/,
+    );
   });
 
   it('does not need defaults inside list items and records', () => {

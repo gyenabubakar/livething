@@ -304,6 +304,48 @@ describe('DocRegistry.flush()', () => {
 
     expect(storedTitle()).toBe('Kept');
   });
+
+  it('also stores a change that comes in while it runs, such as during an onSave', async () => {
+    const stored: Uint8Array[] = [];
+    let saves = 0;
+    const registry: DocRegistry = new DocRegistry({
+      defs: new Map([[taskBoard.name, taskBoard]]),
+      storage: {
+        load: () => [...stored],
+        async append(_doc, update) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          stored.push(update);
+        },
+        compact(_doc, whole) {
+          stored.splice(0, stored.length, whole);
+        },
+      },
+      broadcast() {},
+      members: () => 1,
+      saveDelayMs: 60_000,
+      reportError() {},
+      async onSave() {
+        saves += 1;
+        // A member's edit arrives while the first save runs.
+        if (saves === 1) {
+          void registry.change(launch, (d) => {
+            (d as { title: string }).title = 'Sent during the save';
+          });
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      },
+    });
+    await registry.change(launch, (d) => {
+      (d as { title: string }).title = 'Before the flush';
+    });
+
+    await registry.flush();
+
+    const ydoc = new Y.Doc();
+    for (const update of stored) Y.applyUpdate(ydoc, update);
+    expect(open(taskBoard, ydoc).state.get().title).toBe('Sent during the save');
+  });
 });
 
 describe('DocRegistry.restore()', () => {
