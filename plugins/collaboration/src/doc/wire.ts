@@ -101,7 +101,7 @@ export interface VersionInfo {
   readonly label: string;
   /** When it was saved, in ms since 1970. */
   readonly createdAt: number;
-  /** The user who saved it, or `null` when server code saved it with no author. */
+  /** The user who saved it, or `null` for server code with no author or a client with no user ID. */
   readonly author: string | null;
 }
 

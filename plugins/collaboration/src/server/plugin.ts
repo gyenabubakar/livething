@@ -167,8 +167,9 @@ export interface CollaborationOptions<TDocs extends readonly DocDef[]> {
   onSave?(ctx: SaveContext, event: SaveEvent<TDocs>): void | Promise<void>;
   /**
    * Runs each time a doc loads on this server, before anyone reads it. Use it to fill a new
-   * doc from the app's own database, or to bring a stored doc up to date with it: compare
-   * `doc.state` with the database, and call `doc.change()`. A throw fails the load and keeps
+   * doc (`doc.empty`) from the app's own database, with `doc.change()`. Don't overwrite a
+   * stored doc from the database: it can hold edits `onSave` has not saved yet, as after a
+   * restart before the save, so the database can be older. A throw fails the load and keeps
    * none of its changes, so no client reads a half-filled doc; the next use tries again.
    * Edit the doc only through `doc.change()` here: a server `read()` or `change()` of the same
    * doc waits for the load, which waits for `onLoad`, so neither would ever end.
