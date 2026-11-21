@@ -1,6 +1,5 @@
 <script setup lang="ts">
-const route = useRoute()
-const isHome = computed(() => route.path === '/')
+const isHome = useMarketingPage()
 
 const landingItems = [
   {
@@ -168,6 +167,18 @@ const landingItems = [
         icon: 'i-ph-chat-teardrop-text-duotone',
         description: 'Threads on messages, files and documents',
         to: '/plugins/comments/overview'
+      }
+    ]
+  },
+  {
+    label: 'Runtimes',
+    to: '/core/runtimes/overview',
+    children: [
+      {
+        label: 'Cloudflare',
+        icon: 'i-simple-icons-cloudflare',
+        description: 'Your own realtime cloud on Durable Objects',
+        to: '/cloudflare'
       }
     ]
   }

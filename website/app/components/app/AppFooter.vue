@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import type { FooterColumn } from '@nuxt/ui'
 
-const route = useRoute()
-const isLanding = computed(() => route.path === '/')
+const isLanding = useMarketingPage()
 
 const columns = computed<FooterColumn[]>(() => [
   {
@@ -14,7 +13,7 @@ const columns = computed<FooterColumn[]>(() => [
       },
       {
         label: 'Releases',
-        to: 'https://github.com/workmatter/livething/releases',
+        to: 'https://github.com/gyenabubakar/livething/releases',
         target: '_blank'
       },
       {
@@ -29,12 +28,12 @@ const columns = computed<FooterColumn[]>(() => [
     children: [
       {
         label: 'GitHub',
-        to: 'https://github.com/workmatter/livething',
+        to: 'https://github.com/gyenabubakar/livething',
         target: '_blank'
       },
       {
         label: 'Contributing',
-        to: 'https://github.com/workmatter/livething/blob/main/CONTRIBUTING.md',
+        to: 'https://github.com/gyenabubakar/livething/blob/main/CONTRIBUTING.md',
         target: '_blank'
       }
     ]
@@ -71,7 +70,7 @@ const columns = computed<FooterColumn[]>(() => [
       <UButton
         color="neutral"
         variant="ghost"
-        to="https://github.com/workmatter/livething"
+        to="https://github.com/gyenabubakar/livething"
         target="_blank"
         icon="i-simple-icons-github"
         size="sm"

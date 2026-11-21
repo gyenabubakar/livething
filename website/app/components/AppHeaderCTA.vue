@@ -1,14 +1,14 @@
 <script setup lang="ts">
-// Shown on the landing page only. The hero has its own "Start building" button,
+// Shown on the marketing pages only. Their heroes have their own main button,
 // so this one fades in once that button has scrolled out of view.
-const route = useRoute()
+const isMarketing = useMarketingPage()
 const heroCtaVisible = useState('hero-cta-visible', () => true)
 const hidden = computed(() => heroCtaVisible.value)
 </script>
 
 <template>
   <UButton
-    v-if="route.path === '/'"
+    v-if="isMarketing"
     label="Get Started"
     to="/core/start/installation"
     size="sm"

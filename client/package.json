@@ -1,6 +1,32 @@
 {
   "name": "@livething/client",
-  "version": "1.0.0-beta.0",
+  "version": "1.0.0-alpha.0",
+  "description": "Typed realtime WebSocket client for TypeScript, with types inferred from your LiveThing server: reconnection, requests, rooms, streams, replay and an HTTP fallback.",
+  "license": "MIT",
+  "homepage": "https://livething.dev/core/client/overview",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gyenabubakar/livething.git",
+    "directory": "client"
+  },
+  "keywords": [
+    "livething",
+    "realtime",
+    "websocket",
+    "websocket-client",
+    "typescript",
+    "typed",
+    "reconnect",
+    "rooms",
+    "server-sent-events",
+    "react-native",
+    "real-time",
+    "websockets",
+    "type-safe",
+    "sse",
+    "reconnecting-websocket",
+    "socket.io"
+  ],
   "type": "module",
   "sideEffects": false,
   "main": "dist/index.js",
@@ -42,7 +68,7 @@
     "clean": "rm -rf dist node_modules"
   },
   "peerDependencies": {
-    "@livething/core": "^1.0.0-beta.0"
+    "@livething/core": "^1.0.0-alpha.0"
   },
   "devDependencies": {
     "@livething/core": "workspace:*",

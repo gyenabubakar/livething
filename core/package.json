@@ -1,6 +1,23 @@
 {
   "name": "@livething/core",
-  "version": "1.0.0-beta.0",
+  "version": "1.0.0-alpha.0",
+  "description": "Shared core of LiveThing, typed realtime for TypeScript: typed errors, close codes and the WebSocket wire protocol used by its client and server.",
+  "license": "MIT",
+  "homepage": "https://livething.dev/core/core/overview",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gyenabubakar/livething.git",
+    "directory": "core"
+  },
+  "keywords": [
+    "livething",
+    "realtime",
+    "websocket",
+    "typescript",
+    "typed",
+    "errors",
+    "protocol"
+  ],
   "type": "module",
   "sideEffects": false,
   "main": "dist/index.js",

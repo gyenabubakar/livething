@@ -48,12 +48,13 @@ export default defineNuxtConfig({
 
   routeRules: {
     '/': { prerender: true },
+    '/cloudflare': { prerender: true },
   },
 
   nitro: {
     prerender: {
       crawlLinks: true,
-      routes: ['/'],
+      routes: ['/', '/cloudflare'],
       // A page that fails to render (a code block that could not be highlighted, a broken
       // link) fails the build instead of shipping broken.
       failOnError: true,
@@ -191,7 +192,7 @@ export default defineNuxtConfig({
     },
     repository: {
       provider: 'github',
-      owner: 'workmatter',
+      owner: 'gyenabubakar',
       repo: 'livething',
       rootDir: 'website',
     },

@@ -12,8 +12,8 @@ export default defineNuxtPlugin(() => {
     {
       titleTemplate: (title) => {
         if (!title) return 'LiveThing'
-        // The landing page's title already names LiveThing.
-        if (route.path === '/') return title
+        // A title that already names LiveThing, such as the landing page's, needs no suffix.
+        if (title.includes('LiveThing')) return title
         const [, track, name] = route.path.split('/')
         const section = track === 'plugins' ? 'Plugins' : track === 'core' ? SECTIONS[name ?? ''] : undefined
         return section ? `${title} - ${section} - LiveThing` : `${title} - LiveThing`

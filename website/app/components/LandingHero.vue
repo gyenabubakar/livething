@@ -50,7 +50,7 @@ async function copy() {
           label="Start building"
         />
         <UButton
-          to="https://github.com/workmatter/livething"
+          to="https://github.com/gyenabubakar/livething"
           target="_blank"
           size="lg"
           color="neutral"
