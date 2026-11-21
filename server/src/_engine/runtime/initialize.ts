@@ -10,7 +10,7 @@ import { withCallContext } from '~/_engine/async-context.ts';
 import { commonDeps } from '~/_engine/engine.deps.ts';
 import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
 import { markSchemaInitialized, readSchemaState } from '~/_engine/runtime/schema-meta.ts';
-import { createInitContext } from '~/lifecycle/context.ts';
+import { createHostContext } from '~/lifecycle/context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type { Primitive, ValidationView } from '~/primitive.ts';
@@ -133,11 +133,7 @@ async function runInitialize(core: EngineCore, accessDeps: EngineAccessDeps): Pr
     await hook();
   }
 
-  const initCtx = createInitContext({
-    logger: core.logger,
-    platform: core.platform,
-    getStorageView: commonDeps(core).getStorageView,
-  });
+  const initCtx = createHostContext(commonDeps(core));
   // Inbound onion: plugin inits run before the app's. Their
   // handlers are already wrapped in a plugin-scoped context.
   for (const entry of core.hooks.pluginLifecycle.init) {

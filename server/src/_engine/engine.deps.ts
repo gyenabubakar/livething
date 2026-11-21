@@ -190,6 +190,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
   return {
     logger: core.logger,
     platform: core.platform,
+    messageLimits: core.messageLimits,
     getStorage: () => core.storage,
     isUserPurging: (userId) => core.isUserPurging(userId),
     getStorageView: () =>

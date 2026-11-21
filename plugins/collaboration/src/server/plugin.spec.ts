@@ -93,6 +93,15 @@ function memoryStorage(docs = new Map<string, Uint8Array[]>()) {
 
 describe('collaboration() on the server', () => {
   describe('opening a doc', () => {
+    it('tells a client a part size that fits a binary frame under a small receive limit', async () => {
+      const { engine } = await startServer({ receiveBytes: 100_000 });
+
+      const amara = await member(engine, 'u_amara');
+
+      // The receive limit, less the 9-byte header and the 64 KiB a frame's info may take.
+      expect(amara.reply?.info).toMatchObject({ partBytes: 100_000 - 9 - 64 * 1024 });
+    });
+
     it('syncs an empty client, with its access and the server vector', async () => {
       const { engine, api } = await startServer();
       await api()
@@ -103,7 +112,11 @@ describe('collaboration() on the server', () => {
 
       const amara = await member(engine, 'u_amara');
 
-      expect(amara.reply?.info).toEqual({ access: 'edit', vector: expect.any(String) });
+      expect(amara.reply?.info).toEqual({
+        access: 'edit',
+        vector: expect.any(String),
+        partBytes: 256 * 1024,
+      });
       expect(amara.board.state.get().title).toBe('Launch');
       expect(decodeBase64((amara.reply!.info as { vector: string }).vector)).toEqual(
         Y.encodeStateVector(amara.board.ydoc),
@@ -353,6 +366,28 @@ describe('collaboration() on the server', () => {
       expect(kofi.board.state.get().title).toBe(title);
       expect(dave.board.state.get().title).toBe(title);
       expect(dave.errors()).toEqual([]);
+    });
+
+    it('sizes its parts to a send limit under 256 KiB, for a sync and a change', async () => {
+      const { engine, api } = await startServer({ sendBytes: 100_000 });
+      const amara = await member(engine, 'u_amara');
+      const title = 'z'.repeat(700_000);
+
+      await api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = title;
+        });
+      amara.catchUp();
+      const kofi = await member(engine, 'u_kofi');
+
+      expect(amara.board.state.get().title).toBe(title);
+      expect(kofi.board.state.get().title).toBe(title);
+      expect(
+        [...amara.of('update'), ...kofi.of('update')].every(
+          (frame) => (frame.bytes?.length ?? 0) <= 50_000,
+        ),
+      ).toBe(true);
     });
 
     it('sends a big server change in parts', async () => {

@@ -357,9 +357,9 @@ class AdminChannels<TChannels, TMeta> extends RpcTarget {
  *
  * Workers RPC only sees what is on a class's prototype chain, so every nested
  * part is an `RpcTarget` reached through a getter or a method. Storage,
- * scheduling, the logger and the platform object (`sql`, `kv`, `schedule`,
- * `cancelScheduled`, `log`, `platform`) stay inside the Durable Object: use
- * them from your own `api` methods.
+ * scheduling, the logger, the platform object and the message limits (`sql`, `kv`,
+ * `schedule`, `cancelScheduled`, `log`, `platform`, `messageLimits`) stay inside the
+ * Durable Object: use them from your own `api` methods.
  */
 class AdminTarget<
   TArgs extends AnyArgs,

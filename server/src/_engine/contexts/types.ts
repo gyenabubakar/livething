@@ -1,3 +1,4 @@
+import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -51,6 +52,9 @@ export interface ContextCommonDeps {
   logger: PublicApi.Logger;
 
   platform: unknown;
+
+  /** The adapter's message limits, frozen. */
+  messageLimits: Readonly<EngineAdapterTypes.MessageLimits>;
 
   /**
    * The engine's instance id, or `undefined` when running single-instance.

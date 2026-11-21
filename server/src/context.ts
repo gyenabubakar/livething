@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { BinaryInput } from '@livething/core';
+import type { MessageLimits } from './_adapters/types.ts';
 import type { BinaryEventsCarrier } from './_define/app-ctx.ts';
 import type { BackfillMessage } from './inbox/storage.ts';
 import type { InterceptFrame } from './intercept/intercept.ts';
@@ -947,9 +948,12 @@ export interface ChannelsManager<
  * - **messaging** — `send`, `broadcast`, `connections.get(ref).send`, `users.get(id).broadcast`
  * - **scope helpers** — `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
- *   `log`, `platform`
+ *   `log`, `platform`, `messageLimits`
  */
-export interface ConnectionContext<Meta = Record<string, unknown>, Platform = unknown> {
+export interface ConnectionContext<
+  Meta = Record<string, unknown>,
+  Platform = unknown,
+> extends HostContext<Platform> {
   /**
    * A `ConnectionRef` for the current connection — the self socket address.
    * Pass it to engine methods that act on a specific socket. Equivalent to
@@ -1048,18 +1052,6 @@ export interface ConnectionContext<Meta = Record<string, unknown>, Platform = un
   /** Cancel queued runs for a scheduled task. Pass a `filter` to cancel only matching runs. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
-  /** SQL storage access. */
-  sql: SQLProvider;
-
-  /** Key-value storage access. */
-  kv: KVProvider;
-
-  /** Structured logger. */
-  log: Logger;
-
-  /** Raw platform object from the adapter (Durable Object stub, etc.). */
-  platform: Platform;
-
   /**
    * Store a typed value under a key for the current message dispatch.
    *
@@ -1108,7 +1100,13 @@ export interface ConnectionContext<Meta = Record<string, unknown>, Platform = un
  * This context has no connection-level APIs (`send`, `broadcast`, etc.)
  * because no clients are connected yet.
  */
-export interface InitContext<Platform = unknown> {
+export type InitContext<Platform = unknown> = HostContext<Platform>;
+
+/**
+ * What every server context has, with a connection or without: storage, the logger, and the
+ * adapter's platform object. `onInit` and `authenticate` get only this.
+ */
+export interface HostContext<Platform = unknown> {
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
 
@@ -1120,6 +1118,13 @@ export interface InitContext<Platform = unknown> {
 
   /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
   platform: Platform;
+
+  /**
+   * The largest message this server takes and sends, in bytes, as its adapter set them:
+   * `receiveBytes`, `sendBytes`, and `postBytes` when it takes messages over `http()` POSTs.
+   * Read it to split your own big messages so each part fits.
+   */
+  readonly messageLimits: Readonly<MessageLimits>;
 }
 
 /**
@@ -1220,7 +1225,7 @@ export interface ConnectionlessContext<
   Meta = Record<string, unknown>,
   Platform = unknown,
   TSlots = unknown,
-> {
+> extends HostContext<Platform> {
   /**
    * Broadcast an event to every live connection. Typed against the server's
    * `emits(...)` events, so a typo or wrong payload is a compile error.
@@ -1275,23 +1280,11 @@ export interface ConnectionlessContext<
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;
 
-  /** SQL database access for queries, migrations, and transactions. */
-  sql: SQLProvider;
-
-  /** Key-value storage for simple get/set/delete operations. */
-  kv: KVProvider;
-
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
   schedule(taskId: string, options: OptionsParameter6): void;
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
-
-  /** Structured logger — writes to the platform's logging system. */
-  log: Logger;
-
-  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>` with `env` and part of the Durable Object state). */
-  platform: Platform;
 
   /** A listed plugin's `api`, by plugin id. Throws for an id no listed plugin has. */
   plugin(id: string): unknown;

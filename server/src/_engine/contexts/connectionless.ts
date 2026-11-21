@@ -1,5 +1,6 @@
 import { ChannelNotFound } from '@livething/core';
 import { buildConnectionsManager, buildUsersManager } from '~/_engine/contexts/contexts.ts';
+import { createHostContext } from '~/lifecycle/context.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as PublicApi from '~/context.ts';
 
@@ -33,8 +34,6 @@ function toTarget(name: unknown, instance?: string): string | { family: string; 
 export function createConnectionlessContext(
   deps: EngineContextTypes.CreateConnectionlessContextDeps,
 ): PublicApi.ConnectionlessContext<Record<string, unknown>, unknown> {
-  const { sql, kv } = deps.getStorageView();
-
   const channels: PublicApi.ConnectionlessChannels = {
     get(name: unknown, instance?: string): PublicApi.ConnectionlessChannelHandle {
       const resolved = deps.resolveChannel(toTarget(name, instance));
@@ -77,6 +76,7 @@ export function createConnectionlessContext(
   deps.addBinarySenders?.(channels, { broadcast: { targetKey: 'channel' } });
 
   const ctx: PublicApi.ConnectionlessContext<Record<string, unknown>, unknown> = {
+    ...createHostContext(deps),
     broadcast: (event, payload) => {
       deps.broadcastToConnections(deps.connections.values(), { event, payload });
     },
@@ -95,16 +95,12 @@ export function createConnectionlessContext(
     get connectionCount() {
       return deps.connections.size;
     },
-    sql,
-    kv,
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },
     cancelScheduled: (taskId, filter) => {
       deps.cancelScheduled(taskId, filter);
     },
-    log: deps.logger,
-    platform: deps.platform,
     plugin: deps.plugin,
   };
 

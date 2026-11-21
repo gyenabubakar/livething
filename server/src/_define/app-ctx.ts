@@ -8,9 +8,7 @@ import type {
   ConnectionInfo,
   ConnectionlessContext,
   ConnectionRef,
-  KVProvider,
-  Logger,
-  SQLProvider,
+  HostContext,
   TagRef,
   UserInfo,
   UserRef,
@@ -478,7 +476,7 @@ interface UsersCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
  * @template TSlots The merged contract slots — drives the typed `send`/`broadcast`.
  * @template TMeta  The per-connection metadata returned from `authenticate(...)`.
  */
-type CoreCtx<TSlots, TMeta> = {
+type CoreCtx<TSlots, TMeta> = Readonly<HostContext> & {
   /**
    * A `ConnectionRef` for the current connection — the self socket address. Read
    * `ctx.connection.id` for the connection id and `ctx.connection.userId` for the
@@ -489,8 +487,6 @@ type CoreCtx<TSlots, TMeta> = {
   readonly meta: TMeta;
   /** Merge a patch into this connection's `meta`. Persists once at the end of the handler. */
   setMeta(patch: Partial<TMeta>): void;
-  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>`). Untyped by default. */
-  readonly platform: unknown;
 
   /** Bytes currently buffered on the socket. A rising value signals a slow client. */
   readonly bufferedAmount: number;
@@ -505,12 +501,6 @@ type CoreCtx<TSlots, TMeta> = {
   /** Close this connection. */
   close(code?: number, reason?: string): void;
 
-  /** Adapter-provided SQL surface. Throws if the adapter has no storage. */
-  readonly sql: SQLProvider;
-  /** Adapter-provided key/value surface. Throws if the adapter has no storage. */
-  readonly kv: KVProvider;
-  /** Engine logger — `info` / `warn` / `error`. */
-  readonly log: Logger;
   /**
    * Store a typed value for the current message dispatch. Every downstream
    * intercept and the final handler sharing this dispatch can read it back with

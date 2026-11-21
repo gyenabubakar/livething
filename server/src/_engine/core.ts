@@ -359,7 +359,8 @@ export class EngineCore {
 
     this.platform = options.platform;
     this.logger = options.logger;
-    this.messageLimits = resolveMessageLimits(options);
+    // Frozen: every ctx hands out this same object as `ctx.messageLimits`.
+    this.messageLimits = Object.freeze(resolveMessageLimits(options));
     this.writeGate = options.writeGate;
     this.userTransactions = new UserTransactionTracker(
       (error) => {

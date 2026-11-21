@@ -6,7 +6,7 @@ import { persistAttachment } from '~/_engine/runtime/hibernation.ts';
 import { createTestSql } from '~/_test/sql.ts';
 import { buildChannelFamilyExtra, buildChannelsApi } from '~/channel/context.ts';
 import { CrossInstanceRef } from '~/errors/errors.ts';
-import { createInitContext } from '~/lifecycle/context.ts';
+import { createHostContext } from '~/lifecycle/context.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -777,7 +777,7 @@ describe('storage view in init and connectionless contexts', () => {
 
   it('init ctx.sql.exec forwards calls to the real provider', () => {
     const realSqlExec = vi.fn(() => ({ toArray: () => [], one: () => null, raw: () => [] }));
-    const ctx = createInitContext(
+    const ctx = createHostContext(
       makeShutdownDeps(() => ({
         sql: { exec: realSqlExec, transaction: vi.fn() },
         kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },

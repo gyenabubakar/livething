@@ -1,21 +1,23 @@
-import { PART_BYTES } from '~/doc/wire.ts';
-
 /** `[index, count]` of one part of an update, or `null` when the update fits one message. */
 export type PartOf = readonly [index: number, count: number] | null;
 
-/** Call `send` once per piece of `update`, in order: one piece, or parts of at most `PART_BYTES`. */
+/** Call `send` once per piece of `update`, in order: one piece, or parts of at most `size` bytes. */
 export function eachPart(
   update: Uint8Array,
+  size: number,
   send: (bytes: Uint8Array, part: PartOf) => void,
 ): void {
-  const count = Math.ceil(update.length / PART_BYTES);
+  // A message limit of 1 byte gives a size of 0: refuse it rather than loop forever.
+  if (!(size >= 1)) throw new RangeError(`a part must be at least 1 byte, got ${size}`);
+
+  const count = Math.ceil(update.length / size);
   if (count <= 1) {
     send(update, null);
     return;
   }
 
   for (let index = 0; index < count; index += 1) {
-    send(update.subarray(index * PART_BYTES, (index + 1) * PART_BYTES), [index, count]);
+    send(update.subarray(index * size, (index + 1) * size), [index, count]);
   }
 }
 

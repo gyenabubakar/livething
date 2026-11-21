@@ -1,4 +1,9 @@
-import { encodeBase64, LiveThingConfigError } from '@livething/core';
+import {
+  BINARY_ENVELOPE_LIMIT,
+  BINARY_HEADER_LENGTH,
+  encodeBase64,
+  LiveThingConfigError,
+} from '@livething/core';
 import { errors, server, t } from '@livething/server';
 import { awareness } from '@livething/server/awareness';
 import { binary } from '@livething/server/binary';
@@ -13,9 +18,9 @@ import {
   docIdProblem,
   FAMILY,
   MAX_DELAY_MS,
-  MAX_PARTS,
   MAX_UPDATE_BYTES,
   OUT_OF_ORDER,
+  partBytes,
   PLUGIN_ID,
   ROOM_TEMPLATE,
   roomName,
@@ -36,7 +41,7 @@ import {
 } from '~/server/schemas.ts';
 import { sqlStorage } from '~/server/storage.ts';
 import * as Y from 'yjs';
-import type { ConnectionlessContext } from '@livething/server';
+import type { ConnectionlessContext, HostContext } from '@livething/server';
 import type { DocRef } from '~/doc/storage.ts';
 import type {
   Access,
@@ -250,7 +255,11 @@ class Parts {
    * Add one piece. Gives the whole update once the last piece came, else `null`. All the
    * pieces one connection has waiting, in every room, are at most `MAX_UPDATE_BYTES`.
    */
-  add(sender: Sender, info: UpdateInfo, bytes: Uint8Array): Uint8Array | null {
+  add(
+    sender: Sender & { readonly maxParts: number },
+    info: UpdateInfo,
+    bytes: Uint8Array,
+  ): Uint8Array | null {
     const { connection, room } = sender;
     if (!info.part) {
       this.drop(sender);
@@ -273,7 +282,7 @@ class Parts {
       pending.count !== count ||
       pending.n !== info.n ||
       pending.pieces.length !== index ||
-      count > MAX_PARTS
+      count > sender.maxParts
     ) {
       this.drop(sender);
       throw InvalidMessage({ reason: 'the parts of an update came out of order' });
@@ -318,12 +327,32 @@ class Parts {
   }
 }
 
-/** Send `update` as one message, or in parts, one after another. */
+/** Anything that holds the host's message limits: every server `ctx`. */
+type Limited = Pick<HostContext, 'messageLimits'>;
+
+/** The biggest part this server sends: it fits the host's send limit. */
+function sendPartBytes(ctx: Limited): number {
+  return partBytes(ctx.messageLimits.sendBytes);
+}
+
+/**
+ * The biggest part a client may send. It fits an `http()` POST, and the bytes LiveThing lets
+ * a binary handler take: the receive limit, less the header and room for a 64 KiB envelope.
+ * Under that, it fits the receive limit with its header.
+ */
+function receivePartBytes(ctx: Limited): number {
+  const { receiveBytes, postBytes } = ctx.messageLimits;
+  const room = receiveBytes - BINARY_HEADER_LENGTH - BINARY_ENVELOPE_LIMIT;
+  return Math.min(partBytes(postBytes ?? receiveBytes), room > 0 ? room : partBytes(receiveBytes));
+}
+
+/** Send `update` as one message, or in parts that fit `ctx`'s send limit, one after another. */
 function sendInParts(
+  ctx: Limited,
   update: Uint8Array,
   send: (bytes: Uint8Array, info: ServerUpdateInfo) => void,
 ): void {
-  eachPart(update, (bytes, part) => send(bytes, part ? { part } : null));
+  eachPart(update, sendPartBytes(ctx), (bytes, part) => send(bytes, part ? { part } : null));
 }
 
 /** One `access` tag: the access a connection holds to one doc's room, as `edit:task-board:launch`. */
@@ -568,10 +597,14 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
 
       const sync = await stateOf(ctx).registry.sync({ type, id }, vector);
       // The missing update may be too big for one message, so it goes before the answer.
-      sendInParts(sync.missing, (bytes, part) =>
+      sendInParts(ctx, sync.missing, (bytes, part) =>
         ctx.channel.binary.send('update', bytes, { info: part }),
       );
-      const info: SyncInfo = { access, vector: encodeBase64(sync.vector) };
+      const info: SyncInfo = {
+        access,
+        vector: encodeBase64(sync.vector),
+        partBytes: receivePartBytes(ctx),
+      };
 
       return { info, bytes: new Uint8Array(0) };
     },
@@ -590,7 +623,13 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
       }
 
       const state = stateOf(ctx);
-      const update = state.parts.add({ connection: ctx.connection.id, room }, info, bytes);
+      // A 32 MiB update in the parts this server asks for, and no more.
+      const maxParts = Math.ceil(MAX_UPDATE_BYTES / receivePartBytes(ctx));
+      const update = state.parts.add(
+        { connection: ctx.connection.id, room, maxParts },
+        info,
+        bytes,
+      );
       if (!update) return;
 
       let result;
@@ -600,7 +639,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
           const others = checked.ok ? checked.update : checked.toOthers;
           if (!others) return;
 
-          sendInParts(others, (piece, part) =>
+          sendInParts(ctx, others, (piece, part) =>
             ctx.channel.binary.broadcast('update', piece, { info: part }),
           );
         });
@@ -656,7 +695,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
     async run(ctx, info) {
       const state = await stateOf(ctx).versions.state(docOf(ctx), info.id);
       // A version may be too big for one message, so it goes before the answer.
-      eachPart(state, (bytes, part) =>
+      eachPart(state, sendPartBytes(ctx), (bytes, part) =>
         ctx.channel.binary.send('version', bytes, {
           info: part ? { n: info.n, part } : { n: info.n },
         }),
@@ -691,7 +730,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
         storage,
         saveDelayMs,
         broadcast: (doc, update) =>
-          sendInParts(update, (piece, part) =>
+          sendInParts(ctx, update, (piece, part) =>
             room(doc).binary.broadcast('update', piece, { info: part }),
           ),
         members: (doc) => room(doc).memberCount(),

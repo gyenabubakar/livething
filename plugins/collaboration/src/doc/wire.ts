@@ -4,12 +4,13 @@
 // `task-board:launch`. A doc type can't hold `:`, so the type ends at the first one, and the
 // ID can be any text up to the channel name limit.
 //
-// The doc's content goes as binary messages on that room. An update bigger than `PART_BYTES`
-// goes in parts, both ways, each with `part: [index, count]`; the parts of one update come
-// one after another, with nothing between them.
+// The doc's content goes as binary messages on that room. An update bigger than one part
+// (`partBytes`) goes in parts, both ways, each with `part: [index, count]`; the parts of one
+// update come one after another, with nothing between them.
 // - `sync` (a request): the client sends its Yjs state vector. The server first sends what the
-//   client is missing as an `update`, then answers with its own state vector (base64) and the
-//   client's access, with no bytes. The client then sends what the server is missing.
+//   client is missing as an `update`, then answers with its own state vector (base64), the
+//   client's access, and the part size the client may send, with no bytes. The client then
+//   sends what the server is missing.
 // - `update` (client to server): a Yjs update, with a number `n` the server echoes in `ack`
 //   or `refused`.
 // - `update` (server to client): what a client is missing after a `sync`, someone else's
@@ -55,14 +56,17 @@ export function docIdProblem(type: string, id: unknown): string | null {
     : `collaboration: a doc ID must be a string of 1 to ${MAX_ROOM_NAME - type.length - 1} characters, with no half of an emoji alone`;
 }
 
-/**
- * The biggest piece of an update in one message, both ways: it fits a `http()` POST (512 KiB
- * by default) and any send limit of 512 KiB or more.
- */
-export const PART_BYTES = 256 * 1024;
+/** The biggest piece of an update in one message, both ways, when the limits allow it. */
+const PART_BYTES = 256 * 1024;
 
-/** The most parts one update from a client can have. */
-export const MAX_PARTS = 256;
+/**
+ * The biggest part of an update a message of at most `limit` bytes carries: half of it, so
+ * the frame's header fits too, and at most 256 KiB. The server sizes its parts to its send
+ * limit, and tells each client, in the `sync` answer, the size that fits its receive limit.
+ */
+export function partBytes(limit: number): number {
+  return Math.min(PART_BYTES, Math.floor(limit / 2));
+}
 
 /** The most bytes of one update from a client, all its parts together. */
 export const MAX_UPDATE_BYTES = 32 * 1024 * 1024;
@@ -75,6 +79,8 @@ export interface SyncInfo {
   readonly access: Access;
   /** The server's Yjs state vector, base64. */
   readonly vector: string;
+  /** The biggest part of an update the client may send, so each one fits the server's limits. */
+  readonly partBytes: number;
 }
 
 /** `[index, count]` of one part of an update that comes in parts. */

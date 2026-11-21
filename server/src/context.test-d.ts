@@ -80,3 +80,10 @@ initCtx.close();
 
 // @ts-expect-error — no schedule on InitContext
 initCtx.schedule('task', { time: Date.now() });
+
+const _receiveBytes: number = initCtx.messageLimits.receiveBytes;
+const _postBytes: number | undefined = initCtx.messageLimits.postBytes;
+void [_receiveBytes, _postBytes];
+
+// @ts-expect-error — the message limits are the adapter's, read-only
+initCtx.messageLimits.sendBytes = 1;

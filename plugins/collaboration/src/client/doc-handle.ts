@@ -301,6 +301,8 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
   let opening: Opening | null = null;
 
   let synced = false;
+  /** The biggest part the server takes, from its last `sync` answer. A send waits for one. */
+  let partBytes = 0;
   let everSynced = false;
   let syncs = 0;
   let sent = 0;
@@ -363,7 +365,7 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     const n = sent;
     pending.add(n);
     let dropped = false;
-    eachPart(update, (bytes, part) => {
+    eachPart(update, partBytes, (bytes, part) => {
       dropped ||= !room.binary.send('update', bytes, { info: part ? { n, part } : { n } });
     });
 
@@ -517,6 +519,7 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     if (generation !== syncs || !active) return;
 
     access.set(info.access);
+    partBytes = info.partBytes;
     synced = true;
     everSynced = true;
     // Everything the server lacks: edits made offline, or before this sync answered.

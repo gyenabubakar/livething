@@ -956,6 +956,28 @@ describe('collaboration() on the client', () => {
       }
     });
 
+    it('sends a big edit in parts that fit a server receive limit under 256 KiB', async () => {
+      const server = await startServer({ receiveBytes: 100_000 });
+      const network = memoryNetwork(server.engine);
+      const errors: unknown[] = [];
+      const amara = huddleClient(network, 'u_amara', {
+        onError: (error) => errors.push(error),
+      }).collab.doc('task-board', 'launch');
+      const kofi = huddleClient(network, 'u_kofi').collab.doc('task-board', 'launch');
+
+      await amara.open();
+      await kofi.open();
+      const title = 'q'.repeat(700_000);
+
+      amara.change((d) => {
+        d.title = title;
+      });
+
+      await until(() => kofi.state.get().title === title);
+      await until(() => amara.status.get() === 'synced');
+      expect(errors).toEqual([]);
+    });
+
     it('syncs again by itself when the sync after a reconnect fails once', async () => {
       const sql = testSql();
       const stored = sqlStorage(sql);

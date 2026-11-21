@@ -78,6 +78,7 @@ export type {
   ConnectionlessContext,
   ConnectionRef,
   ConnectionsManager,
+  HostContext,
   InitContext,
   Logger,
   ReplayScopeSendApi,

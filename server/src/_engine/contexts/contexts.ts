@@ -2,6 +2,7 @@ import { userKeyOf } from '~/_engine/runtime/connection.ts';
 import { buildConnectionHandle } from '~/_engine/runtime/refs.ts';
 import { connectionTagRefs } from '~/_engine/runtime/tag-index.ts';
 import { frameMatches, frameUnsafeCast } from '~/intercept/frame-match.ts';
+import { createHostContext } from '~/lifecycle/context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -349,8 +350,6 @@ export function buildConnectionContext(
   connection: EngineRuntimeTypes.RuntimeConnection,
   scope?: BuildConnectionContextScopeParameter,
 ): PublicApi.ConnectionContext<Record<string, unknown>, unknown> & Record<PropertyKey, unknown> {
-  const { sql, kv } = deps.getStorageView();
-
   // Allocated on the first `provide()` — most handlers never touch locals.
   let locals: Map<LocalKey<unknown>, unknown> | undefined;
 
@@ -372,10 +371,7 @@ export function buildConnectionContext(
   const channelExtra = deps.channelContext?.buildChannelFamilyExtra(connection, scope, deps);
   if (channelExtra?.channel) base.channel = channelExtra.channel;
 
-  base.sql = sql;
-  base.kv = kv;
-  base.log = deps.logger;
-  base.platform = deps.platform;
+  Object.assign(base, createHostContext(deps));
 
   base.provide = <T>(key: LocalKey<T>, value: T): void => {
     (locals ??= new Map()).set(key, value);
