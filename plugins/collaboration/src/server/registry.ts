@@ -23,8 +23,16 @@ export interface RegistryOptions {
   broadcast(doc: DocRef, update: Uint8Array): void;
   /** How many members a doc's room has now. */
   members(doc: DocRef): number;
-  /** Runs after a doc's changes settle, `saveDelayMs` after the last one. */
-  onSave?(doc: DocRef, state: unknown): void | Promise<void>;
+  /**
+   * Runs after a doc's changes settle, `saveDelayMs` after the last one. `editors` are the
+   * users whose changes came since the last save that ended.
+   */
+  onSave?(doc: DocRef, state: unknown, editors: readonly string[]): void | Promise<void>;
+  /**
+   * Where each doc's editors since its last save are kept, so a save that runs after a
+   * restart still names them. Without it, they are kept in memory only.
+   */
+  readonly editors?: EditorStore;
   /** Runs each time a doc loads, before anyone reads it. A throw fails the load, keeping no change. */
   onLoad?(doc: DocRef, load: LoadedDoc): void | Promise<void>;
   readonly saveDelayMs: number;
@@ -37,6 +45,13 @@ export interface RegistryOptions {
   /** Drop the stored save of `doc`, once it ran some other way. */
   cancelSave(doc: DocRef): void;
   reportError(message: string, error: unknown): void;
+}
+
+/** Keeps a doc's editors since its last save. */
+interface EditorStore {
+  load(doc: DocRef): readonly string[] | Promise<readonly string[]>;
+  /** Keep `editors` for `doc`; an empty list means none. */
+  store(doc: DocRef, editors: readonly string[]): void | Promise<void>;
 }
 
 /** A doc as it loads, for `onLoad`. */
@@ -73,6 +88,12 @@ interface OpenDoc {
   lastChange: number;
   /** A save ran, or is queued, since the doc loaded. */
   saved: boolean;
+  /** The users whose changes came since the last save that ended. */
+  editors: Set<string>;
+  /** The users who changed it since the running save read the doc. */
+  editedSince: Set<string>;
+  /** Writes of `editors` to the {@link EditorStore}, one after another. */
+  editorWrites: Promise<void>;
   /** How many calls use the doc now; it is not unloaded while one runs. */
   busy: number;
   /**
@@ -90,6 +111,14 @@ interface OpenDoc {
 
 interface ReleaseOptions {
   readonly saveNow: boolean;
+}
+
+/** Where a client's update came from, and what to do once it is applied. */
+export interface Received {
+  /** The user who sent it, or `null` for one with no user ID. */
+  readonly editor: string | null;
+  /** Runs at once with the result, before anything is stored. */
+  applied(result: CheckResult): void;
 }
 
 interface ApplyOptions {
@@ -142,17 +171,16 @@ export class DocRegistry {
    * anything is stored, so the caller can send it on in the order the server took it. The
    * promise ends when the write ran; it rejects only when the doc could not be loaded.
    */
-  receive(
-    ref: DocRef,
-    update: Uint8Array,
-    applied: (result: CheckResult) => void,
-  ): Promise<CheckResult> {
+  receive(ref: DocRef, update: Uint8Array, from: Received): Promise<CheckResult> {
     return this.with(ref, async (doc) => {
       const result = applyChecked(doc.core, update, {});
       const stored = result.ok ? result.update : result.toOthers;
+      // A refused update was undone, so its sender edited nothing.
+      if (result.ok && stored && from.editor !== null) this.addEditor(doc, from.editor);
+
       // The doc holds the update now, so it is stored even when sending it on throws.
       try {
-        applied(result);
+        from.applied(result);
       } finally {
         if (stored) {
           await this.store(doc, stored);
@@ -286,6 +314,7 @@ export class DocRegistry {
           }
 
           await doc.writes;
+          await doc.editorWrites;
           if (doc.unstored) {
             doc.writes = doc.writes.then(() => this.write(doc, null));
             await doc.writes;
@@ -308,6 +337,8 @@ export class DocRegistry {
             await this.saveNow(doc);
           }
 
+          // The save may have changed the editors: the next load must read them as they are.
+          await doc.editorWrites;
           // Something may have opened it while the writes and the save ran.
           if (!this.idle(doc) || this.docs.get(key) !== loading) return;
 
@@ -366,6 +397,7 @@ export class DocRegistry {
     const loaded = await Promise.allSettled(this.docs.values());
     const docs = loaded.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
     const awaited = new Map<OpenDoc, Promise<void>>();
+    const editorsAwaited = new Map<OpenDoc, Promise<void>>();
     await Promise.all(
       docs.map(async (doc) => {
         await doc.writes;
@@ -379,6 +411,8 @@ export class DocRegistry {
         // A save may queue behind the one running: wait until none is left.
         while (doc.saving) await doc.saving;
         if (doc.saveDue || doc.unsaved) await this.saveNow(doc);
+        editorsAwaited.set(doc, doc.editorWrites);
+        await doc.editorWrites;
       }),
     );
 
@@ -387,7 +421,12 @@ export class DocRegistry {
     return (
       this.docs.size > loaded.length ||
       docs.some(
-        (doc) => doc.writes !== awaited.get(doc) || doc.saving || doc.saveDue || doc.unsaved,
+        (doc) =>
+          doc.writes !== awaited.get(doc) ||
+          doc.editorWrites !== editorsAwaited.get(doc) ||
+          doc.saving ||
+          doc.saveDue ||
+          doc.unsaved,
       )
     );
   }
@@ -453,6 +492,9 @@ export class DocRegistry {
       unsaved: false,
       lastChange: 0,
       saved: false,
+      editors: await this.loadEditors(ref),
+      editedSince: new Set(),
+      editorWrites: Promise.resolve(),
       busy: 0,
       unstored: false,
       retry: null,
@@ -654,6 +696,8 @@ export class DocRegistry {
 
     // It reads the doc as it is now: a change after this point marks the doc again.
     doc.unsaved = false;
+    const editors = [...doc.editors];
+    doc.editedSince.clear();
     let state: unknown;
     try {
       state = doc.core.read();
@@ -666,9 +710,54 @@ export class DocRegistry {
     }
 
     try {
-      await this.options.onSave(doc.ref, state);
+      await this.options.onSave(doc.ref, state, editors);
     } catch (error) {
+      // The editors stay for the next save: this one did not record them.
       this.options.reportError(`onSave failed for '${keyOf(doc.ref)}'`, error);
+      return;
     }
+
+    // Saved: drop its editors, but not one who changed the doc again while it ran.
+    for (const editor of editors) {
+      if (!doc.editedSince.has(editor)) doc.editors.delete(editor);
+    }
+
+    if (editors.length > 0) this.storeEditors(doc);
+    await doc.editorWrites;
+  }
+
+  /** The editors kept for `ref`. They only add to a save, so a failed read is logged, and the
+   * doc still loads. */
+  private async loadEditors(ref: DocRef): Promise<Set<string>> {
+    try {
+      return new Set(await this.options.editors?.load(ref));
+    } catch (error) {
+      this.options.reportError(`could not read the editors of '${keyOf(ref)}'`, error);
+      return new Set();
+    }
+  }
+
+  /** `editor` changed the doc: name them in the next save, even one after a restart. */
+  private addEditor(doc: OpenDoc, editor: string): void {
+    if (!this.options.onSave) return;
+
+    doc.editedSince.add(editor);
+    if (doc.editors.has(editor)) return;
+
+    doc.editors.add(editor);
+    this.storeEditors(doc);
+  }
+
+  /** Keep the doc's editors in the {@link EditorStore}, after its earlier writes. */
+  private storeEditors(doc: OpenDoc): void {
+    const store = this.options.editors;
+    if (!store) return;
+
+    const editors = [...doc.editors];
+    doc.editorWrites = doc.editorWrites
+      .then(() => store.store(doc.ref, editors))
+      .catch((error: unknown) => {
+        this.options.reportError(`could not keep the editors of '${keyOf(doc.ref)}'`, error);
+      });
   }
 }

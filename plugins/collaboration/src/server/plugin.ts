@@ -80,6 +80,11 @@ const MAX_AWARENESS_BYTES = 8 * 1024;
 /** The scheduled task that runs a doc's `onSave` once its changes settle. */
 const SAVE_TASK = 'save-doc';
 
+/** The key of a doc's editors since its last save, in the plugin's own `ctx.kv`. */
+function editorsKey(doc: DocRef): string {
+  return `editors:${doc.type}:${doc.id}`;
+}
+
 /** Who is opening a doc, for `access`. */
 export interface AccessContext {
   /** The user `authenticate` gave the connection, or `null` for none. */
@@ -97,10 +102,19 @@ export type DocOf<TDocs extends readonly DocDef[]> = {
   [N in TDocs[number]['name']]: DocRef<N>;
 }[TDocs[number]['name']];
 
-/** What `onSave` gets: the doc's type and ID, and its content now. Check `type` to narrow `state`. */
+/**
+ * What `onSave` gets: the doc's type and ID, its content now, and who changed it. Check `type`
+ * to narrow `state`.
+ */
 export type SaveEvent<TDocs extends readonly DocDef[]> = {
   [N in TDocs[number]['name']]: DocRef<N> & {
     readonly state: Snapshot<DocNamed<TDocs, N>['shape']>;
+    /**
+     * The user IDs of the clients whose changes came since the last `onSave` that ended, in
+     * the order each first changed it. Server changes and `onLoad` add nobody, and neither does
+     * a client with no user ID. Empty when only those changed the doc.
+     */
+    readonly editors: readonly string[];
   };
 }[TDocs[number]['name']];
 
@@ -596,7 +610,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
 
       const access = await options.access(
         {
-          user: { id: ctx.user.id ?? null },
+          user: { id: ctx.user.id || null },
           meta: (ctx.meta ?? {}) as Readonly<Record<string, unknown>>,
           connection: { id: ctx.connection.id },
         },
@@ -677,14 +691,17 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
 
       let result;
       try {
-        result = await state.registry.receive({ type, id }, update, (checked) => {
-          // Send before storing, so every member gets edits in the order the server took them.
-          const others = checked.ok ? checked.update : checked.toOthers;
-          if (!others) return;
+        result = await state.registry.receive({ type, id }, update, {
+          editor: ctx.user.id || null,
+          applied(checked) {
+            // Send before storing, so every member gets edits in the order the server took them.
+            const others = checked.ok ? checked.update : checked.toOthers;
+            if (!others) return;
 
-          sendInParts(ctx, others, (piece, part) =>
-            ctx.channel.binary.broadcast('update', piece, { info: part }),
-          );
+            sendInParts(ctx, others, (piece, part) =>
+              ctx.channel.binary.broadcast('update', piece, { info: part }),
+            );
+          },
         });
       } catch (cause) {
         // Nothing was undone, so the client must not drop its edit: this reason makes it sync
@@ -717,7 +734,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
   const handleSaveVersion = docs.request('save-version', {
     input: saveVersionInput,
     run: (ctx, input) =>
-      stateOf(ctx).versions.save(docOf(ctx, 'edit'), input.label, ctx.user.id ?? null),
+      stateOf(ctx).versions.save(docOf(ctx, 'edit'), input.label, ctx.user.id || null),
   });
 
   const handleListVersions = docs.request('list-versions', {
@@ -789,12 +806,26 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
         cancelSave: (doc) => ctx.cancelScheduled(SAVE_TASK, { type: doc.type, id: doc.id }),
         ...(options.onSave
           ? {
-              onSave: (doc: DocRef, saved: unknown) =>
+              onSave: (doc: DocRef, saved: unknown, editors: readonly string[]) =>
                 options.onSave!({ log: ctx.log, platform: ctx.platform }, {
                   type: doc.type,
                   id: doc.id,
                   state: saved,
+                  editors,
                 } as SaveEvent<TDocs>),
+              // In the plugin's own key-value store, so a save after a restart still names them.
+              editors: {
+                async load(doc: DocRef) {
+                  const kept = await ctx.kv.get(editorsKey(doc));
+                  return Array.isArray(kept)
+                    ? kept.filter((editor): editor is string => typeof editor === 'string')
+                    : [];
+                },
+                store: (doc: DocRef, editors: readonly string[]) =>
+                  editors.length > 0
+                    ? ctx.kv.set(editorsKey(doc), editors)
+                    : ctx.kv.delete(editorsKey(doc)),
+              },
             }
           : {}),
         ...(options.onLoad

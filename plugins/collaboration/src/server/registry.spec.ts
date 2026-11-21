@@ -240,9 +240,9 @@ describe('DocRegistry receive', () => {
     const update = Y.encodeStateAsUpdate(client.ydoc);
 
     state.failing = true;
-    await registry.receive(launch, update, () => {});
+    await registry.receive(launch, update, { editor: null, applied() {} });
     state.failing = false;
-    await registry.receive(launch, update, () => {});
+    await registry.receive(launch, update, { editor: null, applied() {} });
 
     expect(storedTitle()).toBe('Kept');
   });
@@ -431,6 +431,73 @@ describe('DocRegistry, onLoad', () => {
 
     expect(() => kept.change(() => {})).toThrow(/onLoad ended/);
     expect(() => kept.state()).toThrow(/onLoad ended/);
+  });
+});
+
+describe('DocRegistry editors', () => {
+  /** A registry whose editor store takes 30 ms a write, and counts the writes still running. */
+  function slowEditors(load: () => readonly string[] = () => []) {
+    const kept = { editors: [] as readonly string[], writing: 0, loads: [] as number[] };
+    const errors: string[] = [];
+    const registry: DocRegistry = new DocRegistry({
+      defs: new Map([[taskBoard.name, taskBoard]]),
+      storage: { load: () => [], append() {}, compact() {} },
+      broadcast() {},
+      members: () => 0,
+      saveDelayMs: 10,
+      reportError: (message) => errors.push(message),
+      ...timerSaves(() => registry),
+      onSave() {},
+      editors: {
+        load() {
+          kept.loads.push(kept.writing);
+          return load();
+        },
+        async store(_doc, editors) {
+          kept.writing += 1;
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          kept.editors = editors;
+          kept.writing -= 1;
+        },
+      },
+    });
+    const client = open(taskBoard);
+    client.change((d) => {
+      d.title = 'Launch';
+    });
+
+    return { registry, kept, errors, update: Y.encodeStateAsUpdate(client.ydoc) };
+  }
+
+  it('unloads a doc only once its editors are kept, so the next load reads them', async () => {
+    const { registry, kept, update } = slowEditors();
+    await registry.receive(launch, update, { editor: 'u_amara', applied() {} });
+
+    registry.release(launch);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await registry.read(launch);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await registry.read(launch);
+
+    expect(kept.loads).toEqual([0, 0]);
+  });
+
+  it('keeps the editors before a flush ends', async () => {
+    const { registry, kept, update } = slowEditors();
+    await registry.receive(launch, update, { editor: 'u_amara', applied() {} });
+
+    await registry.flush();
+
+    expect(kept).toMatchObject({ writing: 0, editors: [] });
+  });
+
+  it('still loads the doc when its editors can not be read, and logs it', async () => {
+    const { registry, errors } = slowEditors(() => {
+      throw new Error('kv is down');
+    });
+
+    expect(await registry.read(launch)).toMatchObject({ title: '' });
+    expect(errors).toEqual([expect.stringMatching(/editors/)]);
   });
 });
 

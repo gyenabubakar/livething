@@ -3,7 +3,7 @@ import { OUT_OF_ORDER } from '~/doc/wire.ts';
 import { collaboration } from '~/server/plugin.ts';
 import { sqlStorage } from '~/server/storage.ts';
 import { until } from '~/test/client.ts';
-import { connect, settle, startServer, testSql } from '~/test/server.ts';
+import { connect, settle, startServer, testKv, testSql } from '~/test/server.ts';
 import { open, task, taskBoard } from '~/test/task-board.ts';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
@@ -172,6 +172,20 @@ describe('collaboration() on the server', () => {
         n: 1,
         reason: 'this client may only view the doc',
       });
+    });
+
+    it('gives access a null user ID, and saves a null author, for a client with no user ID', async () => {
+      const access = vi.fn(() => 'edit' as const);
+      const { engine } = await startServer({ access });
+      const anonymous = await member(engine, '');
+
+      const saved = await anonymous.request('launch', 'save-version', { label: 'Draft' });
+
+      expect(access).toHaveBeenCalledWith(
+        expect.objectContaining({ user: { id: null } }),
+        expect.anything(),
+      );
+      expect(saved?.info).toMatchObject({ author: null });
     });
 
     it('gives access the user, the meta, the connection and the doc', async () => {
@@ -772,6 +786,102 @@ describe('collaboration() on the server', () => {
     });
   });
 
+  describe('onSave editors', () => {
+    it('names each member whose edits the save has, once, and nobody for a server change', async () => {
+      const saves: (readonly string[])[] = [];
+      const { engine, api } = await startServer({
+        saveDelayMs: 30,
+        onSave(_ctx, event) {
+          saves.push(event.editors);
+        },
+      });
+      const amara = await member(engine, 'u_amara');
+      const kofi = await member(engine, 'u_kofi');
+
+      await amara.edit(1, (ydoc) => ydoc.getText('title').insert(0, 'Launch'));
+      await kofi.edit(1, (ydoc) => ydoc.getText('title').insert(0, 'The '));
+      await amara.edit(2, (ydoc) => ydoc.getText('title').insert(0, '!'));
+      await until(() => saves.length === 1);
+      await api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.archived = true;
+        });
+
+      await until(() => saves.length === 2);
+
+      expect(saves).toEqual([['u_amara', 'u_kofi'], []]);
+    });
+
+    it('names again in the next save a member who edits while a save runs', async () => {
+      const saves: (readonly string[])[] = [];
+      let endSave!: () => void;
+      const gate = new Promise<void>((resolve) => (endSave = resolve));
+      const { engine } = await startServer({
+        saveDelayMs: 30,
+        async onSave(_ctx, event) {
+          saves.push(event.editors);
+          if (saves.length === 1) await gate;
+        },
+      });
+      const amara = await member(engine, 'u_amara');
+
+      await amara.edit(1, (ydoc) => ydoc.getText('title').insert(0, 'Launch'));
+      await until(() => saves.length === 1);
+
+      await amara.edit(2, (ydoc) => ydoc.getText('title').insert(0, 'The '));
+      endSave();
+
+      await until(() => saves.length === 2);
+      expect(saves).toEqual([['u_amara'], ['u_amara']]);
+    });
+
+    it('keeps the editors of a save that was due when the server went away', async () => {
+      const sql = testSql();
+      const kv = testKv();
+      const first = await startServer({ sql, kv, saveDelayMs: 50, onSave: vi.fn() });
+      const amara = await member(first.engine, 'u_amara');
+      await amara.edit(1, (ydoc) => ydoc.getText('title').insert(0, 'Before the eviction'));
+
+      first.evict();
+
+      const onSave = vi.fn();
+      await startServer({ sql, kv, saveDelayMs: 50, onSave });
+
+      await until(() => onSave.mock.calls.length > 0, 2000);
+      expect(onSave.mock.calls[0]![1].editors).toEqual(['u_amara']);
+    });
+
+    it('names nobody for a client with no user ID', async () => {
+      const onSave = vi.fn();
+      const { engine } = await startServer({ saveDelayMs: 30, onSave });
+      const anonymous = await member(engine, '');
+
+      await anonymous.edit(1, (ydoc) => ydoc.getText('title').insert(0, 'Launch'));
+
+      await until(() => onSave.mock.calls.length > 0);
+      expect(onSave.mock.calls[0]![1].editors).toEqual([]);
+    });
+
+    it('drops kept editors that are not user IDs', async () => {
+      const sql = testSql();
+      const kv = testKv();
+      const first = await startServer({ sql, kv, saveDelayMs: 50, onSave: vi.fn() });
+      const amara = await member(first.engine, 'u_amara');
+      await amara.edit(1, (ydoc) => ydoc.getText('title').insert(0, 'Launch'));
+
+      first.evict();
+      const [key] = await kv.list();
+      await kv.set(key!, ['u_amara', 7, null]);
+
+      const onSave = vi.fn();
+      await startServer({ sql, kv, saveDelayMs: 50, onSave });
+
+      await until(() => onSave.mock.calls.length > 0, 2000);
+      expect(onSave.mock.calls[0]![1].editors).toEqual(['u_amara']);
+    });
+  });
+
   describe('onSave', () => {
     it('runs once after the changes settle, with the doc and its content', async () => {
       const onSave = vi.fn();
@@ -793,6 +903,7 @@ describe('collaboration() on the server', () => {
           type: 'task-board',
           id: 'launch',
           state: expect.objectContaining({ title: 'Launch', archived: true }),
+          editors: [],
         },
       );
     });

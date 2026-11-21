@@ -74,7 +74,7 @@ export function testSql(maxValueBytes = 1_000_000): SQLProvider & { db: Database
   };
 }
 
-function testKv(): KVProvider {
+export function testKv(): KVProvider {
   const store = new Map<string, unknown>();
   return {
     get: async (key) => store.get(key),
@@ -87,6 +87,8 @@ function testKv(): KVProvider {
 export interface HarnessOptions extends Partial<CollaborationOptions<Docs>> {
   readonly hibernation?: boolean;
   readonly sql?: SQLProvider & { db: DatabaseSync };
+  /** The server's key-value store: pass one in to keep it for the next server, as `sql`. */
+  readonly kv?: KVProvider;
   /** The largest frame the server may send. Default: the engine's 32 MiB. */
   readonly sendBytes?: number;
   /** The largest frame the server takes, as a Node host can raise it. Default: 32 MiB. */
@@ -97,7 +99,9 @@ export interface HarnessOptions extends Partial<CollaborationOptions<Docs>> {
 const ACCESS: Record<string, DocAccess> = { u_guest: 'view', u_out: false };
 
 /** Huddle's server definition: channels and the Collaboration plugin. */
-function huddleDefinition(options: Omit<HarnessOptions, 'sql' | 'sendBytes' | 'receiveBytes'>) {
+function huddleDefinition(
+  options: Omit<HarnessOptions, 'sql' | 'kv' | 'sendBytes' | 'receiveBytes'>,
+) {
   const { hibernation, ...pluginOptions } = options;
   const Collaboration = collaboration({
     docs,
@@ -118,7 +122,7 @@ export type HuddleClient = InferClient<ReturnType<typeof huddleDefinition>>;
 
 /** A running server with the Collaboration plugin for Huddle's task board. */
 export async function startServer(options: HarnessOptions = {}) {
-  const { hibernation, sql = testSql(), sendBytes, receiveBytes } = options;
+  const { hibernation, sql = testSql(), kv = testKv(), sendBytes, receiveBytes } = options;
   const definition = huddleDefinition(options);
 
   const logged: unknown[][] = [];
@@ -154,7 +158,7 @@ export async function startServer(options: HarnessOptions = {}) {
       : {}),
     setup(createEngine) {
       engine = createEngine({
-        storage: { sql, kv: testKv() },
+        storage: { sql, kv },
         ...(sendBytes || receiveBytes
           ? {
               messageLimits: {

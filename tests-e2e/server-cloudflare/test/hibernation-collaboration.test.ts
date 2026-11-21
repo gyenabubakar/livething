@@ -1,5 +1,5 @@
 import { encodeBinaryFrame, splitBinaryFrame } from '@livething/core';
-import { savedTitleKey } from '@livething/tests-e2e-handlers/collaboration';
+import { savedEditorsKey, savedTitleKey } from '@livething/tests-e2e-handlers/collaboration';
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { expect, it } from 'vitest';
@@ -147,13 +147,18 @@ it('runs an onSave that was due when the Durable Object was evicted', async () =
   const renamed = await rename(alice, 'Saved after the eviction');
   await waitFor(alice.frames, (frame) => frame.event === 'ack' && frame.info?.n === renamed);
 
-  // Cloudflare drops the object before the 300 ms wait for the save ends.
+  // Cloudflare drops the object before the 2 s wait for the save ends: nothing is saved yet.
   await evictDurableObject(stub);
+  expect(
+    await runInDurableObject(stub, (_instance, state) =>
+      state.storage.get<string>(savedTitleKey('launch')),
+    ),
+  ).toBeUndefined();
 
   // The test runner does not fire alarms by itself: fire the object's alarm, as Cloudflare
   // would once the save is due, until the save has run.
   let saved: string | undefined;
-  for (let tries = 0; tries < 20 && saved === undefined; tries += 1) {
+  for (let tries = 0; tries < 50 && saved === undefined; tries += 1) {
     await new Promise((resolve) => setTimeout(resolve, 100));
     await runDurableObjectAlarm(stub);
     saved = await runInDurableObject(stub, (_instance, state) =>
@@ -162,4 +167,9 @@ it('runs an onSave that was due when the Durable Object was evicted', async () =
   }
 
   expect(saved).toBe('Saved after the eviction');
+  // Who edited survives the eviction too, so the save still names them.
+  const editors = await runInDurableObject(stub, (_instance, state) =>
+    state.storage.get<string>(savedEditorsKey('launch')),
+  );
+  expect(editors).toBe('alice');
 });

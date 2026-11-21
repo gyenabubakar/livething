@@ -33,6 +33,7 @@ describe('collaboration() types', () => {
 
         expectTypeOf(event.type).toEqualTypeOf<'task-board'>();
         expectTypeOf(event.state.title).toEqualTypeOf<string>();
+        expectTypeOf(event.editors).toEqualTypeOf<readonly string[]>();
       },
     });
   });
