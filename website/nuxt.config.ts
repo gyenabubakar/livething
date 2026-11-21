@@ -109,58 +109,64 @@ export default defineNuxtConfig({
       title: 'LiveThing — full documentation',
       description: 'Every LiveThing documentation page concatenated into one file.',
     },
-    // Group the index by the eight navbar sections. `@nuxt/content` fills each
+    // Group the index by the Core sections, plus Plugins. `@nuxt/content` fills each
     // section's links by querying the `docs` collection with these path filters.
     sections: [
       {
         title: 'Start',
         description: 'Install LiveThing and build your first typed realtime app.',
         contentCollection: 'docs',
-        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/start/%' }],
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/core/start/%' }],
       },
       {
         title: 'Learn',
         description: 'The guided tour — the server and client as two halves of one contract.',
         contentCollection: 'docs',
-        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/learn/%' }],
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/core/learn/%' }],
       },
       {
         title: 'Client',
         description: 'The @livething/client package: the socket, primitives, channels, streams, and errors.',
         contentCollection: 'docs',
-        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/client/%' }],
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/core/client/%' }],
       },
       {
         title: 'Server',
         description:
           'The @livething/server package: server(), capabilities, event handlers, channels, streams, and replay.',
         contentCollection: 'docs',
-        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/server/%' }],
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/core/server/%' }],
       },
       {
         title: 'Server Runtimes',
         description:
           'Where the server runs and how clients reach it: the Cloudflare, Node.js and Bun adapters, the Node.js frameworks, and the WebSocket, http() and custom transports.',
         contentCollection: 'docs',
-        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/runtimes/%' }],
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/core/runtimes/%' }],
       },
       {
         title: 'Core',
         description: 'The @livething/core shared layer: the error model, built-in errors, and close codes.',
         contentCollection: 'docs',
-        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/core/%' }],
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/core/core/%' }],
       },
       {
         title: 'Recipes',
         description: 'Complete worked apps, plus the framework-wiring setup.',
         contentCollection: 'docs',
-        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/recipes/%' }],
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/core/recipes/%' }],
       },
       {
         title: 'Reference',
         description: 'Lookup tables: error codes, close codes, and the socket API.',
         contentCollection: 'docs',
-        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/reference/%' }],
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/core/reference/%' }],
+      },
+      {
+        title: 'Plugins',
+        description: 'First-party plugins. Collaboration ships: shared documents many people edit at once. Chat, push notifications, a notifications feed, and comments are coming soon.',
+        contentCollection: 'docs',
+        contentFilters: [{ field: 'path', operator: 'LIKE', value: '/plugins/%' }],
       },
     ],
   },

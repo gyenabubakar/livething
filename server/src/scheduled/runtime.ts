@@ -37,7 +37,9 @@ const SCHEDULED_DLQ_TABLE_SQL = `
 const SCHEDULED_STOPPED_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __livething_scheduled_stopped (
     taskId TEXT PRIMARY KEY,
-    stoppedAt INTEGER NOT NULL
+    stoppedAt INTEGER NOT NULL,
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
+    metadata TEXT NOT NULL DEFAULT '{}'
   )
 `;
 

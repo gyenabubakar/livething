@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { useEventListener } from '@vueuse/core'
 
-// First-party plugins on the roadmap (none ship yet, so each is tagged "coming
-// soon"). A pinned list on the left tracks which row is on screen, and clicking
-// an entry scrolls to its row. The page scrolls normally the whole time.
+// First-party plugins. One that ships links to its docs; the others are tagged
+// "coming soon". A pinned list on the left tracks which row is on screen, and
+// clicking an entry scrolls to its row. The page scrolls normally the whole time.
 const plugins = [
   {
     key: 'chat',
@@ -14,7 +14,7 @@ const plugins = [
   },
   {
     key: 'push',
-    name: 'Push notifications',
+    name: 'Push Notifications',
     icon: 'i-ph-bell-ringing-duotone',
     title: 'Reach people when their socket is closed',
     features: ['Web push', 'iOS and Android push', 'Sent only when a user is offline', 'Per-user preferences'],
@@ -22,23 +22,24 @@ const plugins = [
   {
     key: 'collab',
     name: 'Collaboration',
-    icon: 'i-ph-pencil-line-duotone',
-    title: 'Shared documents that many people edit at once',
-    features: ['Conflict-free edits', 'Undo and redo per user', 'Comments stay on the right spot as people edit', 'Offline edits merge on reconnect'],
+    icon: 'i-ph-users-four-duotone',
+    title: 'Shared documents and state that many people edit at once',
+    features: ['Conflict-free edits to text and typed data', 'Undo, redo and version history', 'Anchors that follow their words and items as people edit', 'Offline edits merge on reconnect'],
+    docs: '/plugins/collaboration/overview',
   },
   {
     key: 'feed',
-    name: 'Notifications feed',
+    name: 'Notifications Feed',
     icon: 'i-ph-tray-arrow-down-duotone',
     title: 'An in-app inbox that stays in sync on every device',
     features: ['Unread counts', 'Mark as read everywhere', 'Grouping', 'Live, or on the next visit'],
   },
   {
-    key: 'state',
-    name: 'Live state sync',
-    icon: 'i-ph-arrows-clockwise-duotone',
-    title: 'A typed store that every client shares',
-    features: ['Typed from your server', 'Syncs on every change', 'Survives reconnects', 'Validated on the server'],
+    key: 'comments',
+    name: 'Comments',
+    icon: 'i-ph-chat-teardrop-text-duotone',
+    title: 'Comment threads on anything people make',
+    features: ['Threads, replies, mentions and reactions', 'Resolve and reopen', 'A comment-only role', 'Stays on its words in Collaboration documents'],
   },
 ] as const
 
@@ -103,7 +104,7 @@ function go(index: number) {
               <p class="text-xs font-medium uppercase tracking-widest text-zinc-500">
                 {{ plugin.name }}
               </p>
-              <span class="border border-default px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-widest text-zinc-500">Coming soon</span>
+              <span v-if="!('docs' in plugin)" class="border border-default px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-widest text-zinc-500">Coming soon</span>
             </div>
             <h3 class="mt-4 text-3xl font-semibold tracking-tight text-highlighted">
               {{ plugin.title }}
@@ -114,6 +115,10 @@ function go(index: number) {
                 {{ feature }}
               </li>
             </ul>
+            <ULink v-if="'docs' in plugin" :to="plugin.docs" class="mt-6 inline-flex items-center gap-1 text-sm font-medium text-primary">
+              Read the docs
+              <UIcon name="i-ph-arrow-right" class="size-4" />
+            </ULink>
           </div>
 
           <LandingGrainPanel :tone="index % 2 ? 'dusk' : 'ember'" class="min-h-[26rem] cursor-default select-none">

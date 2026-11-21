@@ -2,6 +2,7 @@
 import { expectTypeOf } from 'vitest';
 import type { LiveThingError } from '@livething/core';
 import type { PluginSocket } from '~/plugins/plugin-socket.ts';
+import type { AwarenessEntry } from '~/primitives/awareness/types.ts';
 
 interface ChatContract {
   incoming: { message: { id: string; text: string } };
@@ -128,3 +129,30 @@ expectTypeOf(inboxPlugin.channel('room').receivers.get()).toEqualTypeOf<
 expectTypeOf(inboxPlugin.channel('room').markAsRead()).toEqualTypeOf<void>();
 // @ts-expect-error — 'plain' has no inbox flag, so receivers is absent here too
 inboxPlugin.channel('plain').receivers;
+
+// A plugin channel with awareness, fixed or a family room, gets `.awareness` typed from its
+// contract, the same as an app channel.
+interface DocsPluginContract {
+  channels: {
+    feed: { incoming: { post: { text: string } }; awareness: { typing: boolean } };
+    docs: {
+      addressing: 'dynamic';
+      incoming: { saved: { at: number } };
+      awareness: { viewingTaskId: string | null };
+    };
+    plain: { incoming: { message: { text: string } } };
+  };
+}
+
+declare const docsPlugin: PluginSocket<DocsPluginContract>;
+docsPlugin.channel('docs', 'doc:launch').awareness.set({ viewingTaskId: 't_1042' });
+expectTypeOf(docsPlugin.channel('docs', 'doc:launch').awareness.mine.get()).toEqualTypeOf<{
+  viewingTaskId: string | null;
+} | null>();
+expectTypeOf(docsPlugin.channel('feed').awareness.others.get()).toEqualTypeOf<
+  ReadonlyMap<string, AwarenessEntry<{ typing: boolean }>>
+>();
+// @ts-expect-error — the state must match the contract
+docsPlugin.channel('feed').awareness.set({ typing: 'yes' });
+// @ts-expect-error — 'plain' has no awareness
+docsPlugin.channel('plain').awareness;

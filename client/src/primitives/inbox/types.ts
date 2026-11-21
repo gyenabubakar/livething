@@ -91,4 +91,4 @@ export type InboxPrimitive = Primitive<InboxTypeFn, {}, InboxChannelTypeFn> &
 
 /** The descriptor `readReceipts()` returns. */
 export type ReadReceiptsPrimitive = Primitive<ReadReceiptsTypeFn, {}, ReadReceiptsChannelTypeFn> &
-  PrimitiveIdentity<'read-receipts'>;
+  PrimitiveIdentity<'readReceipts'>;

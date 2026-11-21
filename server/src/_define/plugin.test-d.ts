@@ -28,7 +28,7 @@ import type { ScopedServerConfig, ServerConfig } from '~/_define/server.ts';
 import type { InferClient } from '~/infer-client.ts';
 
 // ---------------------------------------------------------------------------
-// Gap 1 — a scoped plugin's `api` ctx IS the plugin's scoped ctx, not `any`.
+// Gap 1 — a scoped plugin's `api` ctx is the plugin's scoped connectionless ctx, not `any`.
 // ---------------------------------------------------------------------------
 const scopedBase = server({
   scope: 'plugin',
@@ -49,10 +49,16 @@ const ApiPlugin = plugin('acme:presence', {
     handlers: [scopedDefinition, scopedTask],
     api: (ctx) => {
       // The declared emit with the right payload is allowed.
-      ctx.send('p-online', { id: ctx.connection.id });
+      ctx.broadcast('p-online', { id: 'conn_1' });
 
       // @ts-expect-error — wrong payload shape for a declared emit
-      ctx.send('p-online', { id: 123 });
+      ctx.broadcast('p-online', { id: 123 });
+
+      // @ts-expect-error — the api is connectionless: no caller connection
+      void ctx.connection;
+
+      // @ts-expect-error — the api is connectionless: no `send` to a caller
+      void ctx.send;
 
       // @ts-expect-error — undeclared method does not exist on the scoped ctx
       ctx.nope();
@@ -87,10 +93,42 @@ const InferApiPlugin = plugin('acme:infer', {
   }),
 });
 
-const inferHost = server({ capabilities: [InferApiPlugin()] });
+const inferHost = server({
+  capabilities: [InferApiPlugin(), scheduled({ 'nightly-report': null })],
+});
+
+// Connectionless code reaches the plugin too: a scheduled task body and the host's own `api`.
+export const nightlyReport = inferHost.scheduled('nightly-report', {
+  run(ctx) {
+    expectTypeOf(ctx.plugin('acme:infer').foo).toEqualTypeOf<number>();
+  },
+});
+
+export const inferHostDefinition = inferHost.assemble({
+  handlers: [nightlyReport],
+  api: (ctx) => {
+    // @ts-expect-error — only the IDs of listed plugins are accepted
+    ctx.plugin('acme:nope');
+    // @ts-expect-error — not even with an explicit type argument
+    ctx.plugin<{ foo: number }>('acme:nope');
+
+    return { foo: () => ctx.plugin('acme:infer').foo };
+  },
+});
+
+// A host with no plugins has no `plugin` on its connectionless ctx.
+export const noPlugins = server({ capabilities: [scheduled({ cleanup: null })] });
+export const cleanup = noPlugins.scheduled('cleanup', {
+  run(ctx) {
+    // @ts-expect-error — no plugin is listed
+    void ctx.plugin;
+  },
+});
 inferHost.on('host-probe', {
   run(ctx) {
     const api = ctx.plugin('acme:infer');
+    // @ts-expect-error — only the IDs of listed plugins are accepted
+    ctx.plugin('acme:infer-typo');
     // Not `any` — a regression to `any` would make `not.toBeAny` fail.
     expectTypeOf(api).not.toBeAny();
     expectTypeOf(api.foo).toEqualTypeOf<number>();

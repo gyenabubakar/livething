@@ -29,8 +29,9 @@ export default defineEventHandler(async (event) => {
     const pages = await queryCollection(event, 'docs').all();
 
     for (const page of pages) {
-      // `sitemap` and `modifiedAt` are optional frontmatter fields, outside the collection schema.
-      const meta = page as typeof page & { sitemap?: boolean; modifiedAt?: string };
+      // `sitemap` and `modifiedAt` are optional frontmatter fields outside the collection
+      // schema, so Nuxt Content keeps them in `page.meta`.
+      const meta = (page.meta ?? {}) as { sitemap?: boolean; modifiedAt?: string };
       let pagePath = page.path || '/';
 
       if (

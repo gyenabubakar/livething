@@ -37,20 +37,20 @@ const CHANNEL_LIFECYCLE_REGISTER: Record<
   check: (engine, handler, primitive) => engine.onCheck(handler, primitive.validator),
   revalidate: (engine, handler) => engine.onRevalidate(handler),
   commit: (engine, handler) => engine.onCommit(handler),
-  onSubscribe: (engine, handler) => engine.onSubscribe(handler),
-  onUnsubscribe: (engine, handler) => engine.onUnsubscribe(handler),
-  onSessionEnd: (engine, handler) => engine.onSessionEnd(handler),
+  'on-subscribe': (engine, handler) => engine.onSubscribe(handler),
+  'on-unsubscribe': (engine, handler) => engine.onUnsubscribe(handler),
+  'on-session-end': (engine, handler) => engine.onSessionEnd(handler),
 };
 
 /** Plugin-contributed lifecycle primitives → the engine registry kind they map to. */
 const LIFECYCLE_KINDS: Record<string, PluginLifecycleKind> = {
-  onInit: 'init',
-  onConnect: 'connect',
-  onDisconnect: 'disconnect',
-  onShutdown: 'shutdown',
-  onError: 'error',
-  onPing: 'ping',
-  onPong: 'pong',
+  'on-init': 'init',
+  'on-connect': 'connect',
+  'on-disconnect': 'disconnect',
+  'on-shutdown': 'shutdown',
+  'on-error': 'error',
+  'on-ping': 'ping',
+  'on-pong': 'pong',
 };
 
 type PluginLifecycleKind =
@@ -275,7 +275,7 @@ export function namespacePluginPrimitives(
 
     if (primitive.__livething === 'intercept') return ownHook(scope, primitive);
 
-    if (primitive.__livething === 'outgoingHook') return ownOutgoingHook(scope, primitive);
+    if (primitive.__livething === 'outgoing-hook') return ownOutgoingHook(scope, primitive);
 
     return namespaceOne(scope, primitive);
   });
@@ -486,9 +486,11 @@ function namespaceChannel(scope: PluginScope, primitive: Primitive): Primitive {
     primitives: channel.primitives.map((child) => {
       if (child.__livething === 'intercept') return ownHook(scope, child);
 
-      if (child.__livething === 'outgoingHook') return ownOutgoingHook(scope, child);
+      if (child.__livething === 'outgoing-hook') return ownOutgoingHook(scope, child);
 
       if (CHANNEL_LIFECYCLE_REGISTER[child.__livething]) return scopeChannelLifecycle(scope, child);
+
+      if (child.__livething === 'awareness-marker') return scopeAwarenessCheck(scope, child);
 
       return namespaceOne(scope, child);
     }),
@@ -518,6 +520,27 @@ function scopeChannelLifecycle(scope: PluginScope, primitive: Primitive): Primit
     handler: scoped,
     __setup(engine: EngineAccess) {
       register(engine, scoped, primitive);
+    },
+  } as unknown as Primitive;
+}
+
+/** Run a plugin channel's awareness `check` with the plugin's scoped ctx, like its other hooks. */
+function scopeAwarenessCheck(scope: PluginScope, primitive: Primitive): Primitive {
+  const options = (
+    primitive as unknown as { options: { check?: (ctx: any, ...rest: any[]) => unknown } }
+  ).options;
+  const { check } = options;
+  if (!check) return primitive;
+
+  return {
+    ...(primitive as unknown as Record<PropertyKey, unknown>),
+    __plugin: scope.id,
+    options: {
+      ...options,
+      // A declared error it throws gets the plugin's namespaced code, as in every other hook.
+      check: scopePluginThrow(scope.id, scope.shortCodes, (ctx: any, ...rest: any[]) =>
+        runAsPlugin(scope, ctx, (scoped) => check(scoped, ...rest)),
+      ),
     },
   } as unknown as Primitive;
 }

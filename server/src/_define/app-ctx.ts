@@ -8,9 +8,7 @@ import type {
   ConnectionInfo,
   ConnectionlessContext,
   ConnectionRef,
-  KVProvider,
-  Logger,
-  SQLProvider,
+  HostContext,
   TagRef,
   UserInfo,
   UserRef,
@@ -478,7 +476,7 @@ interface UsersCtx<TSlots, TMeta, TCaps extends readonly AnyCapability[]> {
  * @template TSlots The merged contract slots — drives the typed `send`/`broadcast`.
  * @template TMeta  The per-connection metadata returned from `authenticate(...)`.
  */
-type CoreCtx<TSlots, TMeta> = {
+type CoreCtx<TSlots, TMeta> = Readonly<HostContext> & {
   /**
    * A `ConnectionRef` for the current connection — the self socket address. Read
    * `ctx.connection.id` for the connection id and `ctx.connection.userId` for the
@@ -489,8 +487,6 @@ type CoreCtx<TSlots, TMeta> = {
   readonly meta: TMeta;
   /** Merge a patch into this connection's `meta`. Persists once at the end of the handler. */
   setMeta(patch: Partial<TMeta>): void;
-  /** The raw platform object from the adapter (on Cloudflare, `Platform<Env>`). Untyped by default. */
-  readonly platform: unknown;
 
   /** Bytes currently buffered on the socket. A rising value signals a slow client. */
   readonly bufferedAmount: number;
@@ -505,12 +501,6 @@ type CoreCtx<TSlots, TMeta> = {
   /** Close this connection. */
   close(code?: number, reason?: string): void;
 
-  /** Adapter-provided SQL surface. Throws if the adapter has no storage. */
-  readonly sql: SQLProvider;
-  /** Adapter-provided key/value surface. Throws if the adapter has no storage. */
-  readonly kv: KVProvider;
-  /** Engine logger — `info` / `warn` / `error`. */
-  readonly log: Logger;
   /**
    * Store a typed value for the current message dispatch. Every downstream
    * intercept and the final handler sharing this dispatch can read it back with
@@ -767,12 +757,7 @@ interface TagsCtx<TSlots, TMeta> {
    * return a handle to add, remove, count, and address connections by tag; only
    * groups declared by the `tags(...)` capability are accepted.
    */
-  readonly tags: TagsApi<
-    keyof EphemeralTags<TSlots> & string,
-    keyof PersistentTags<TSlots> & string,
-    TMeta,
-    TSlots
-  >;
+  readonly tags: TagsApi<EphemeralTags<TSlots>, PersistentTags<TSlots>, TMeta, TSlots>;
 }
 
 /** A `ctx.channels.get(...)` handle; gate callbacks get it without `inbox`/`readReceipts`. */
@@ -820,13 +805,11 @@ type PluginApiOf<TSlice> = TSlice extends { __api: infer TApi } ? TApi : unknown
 /** The `ctx.plugin(id)` surface — owned by `plugin(...)` capabilities. */
 interface PluginCtx<TPlugins> {
   /**
-   * Reach a registered plugin's API by its id. The id is typed to the plugins
-   * actually listed, and the result is that plugin's `api` type — pass an explicit
-   * type argument to override. A plugin id is unique (one plugin per id), so the
-   * lookup is unambiguous; the API is built once per context and reused.
+   * Reach a listed plugin's API by its id. Only the ids of the listed plugins are
+   * accepted, and the result is that plugin's `api` type. The API is built once
+   * and shared by every caller.
    */
   plugin<TId extends keyof TPlugins & string>(id: TId): PluginApiOf<TPlugins[TId]>;
-  plugin<TApi = unknown>(id: string): TApi;
 }
 
 /** True when `T` is a non-empty record (the slot is actually declared). */
@@ -1018,12 +1001,13 @@ export type ConnectionlessCtx<
   TCaps extends readonly AnyCapability[] = readonly [],
 > = Omit<
   ConnectionlessContext<TMeta, unknown, TSlots>,
-  'schedule' | 'cancelScheduled' | 'channels' | 'connections' | 'users'
+  'schedule' | 'cancelScheduled' | 'channels' | 'connections' | 'users' | 'plugin'
 > &
   ConnectionlessManagersCtx<TSlots, TMeta> &
   ConnectionlessBinaryCtx<TSlots> &
   ('scheduled' extends BrandsOf<TCaps> ? ScheduleCtx<TSlots> : {}) &
-  ('channels' extends BrandsOf<TCaps> ? ConnectionlessChannelsCtx<TSlots, TMeta> : {});
+  ('channels' extends BrandsOf<TCaps> ? ConnectionlessChannelsCtx<TSlots, TMeta> : {}) &
+  (HasKeys<Plugins<TSlots>> extends true ? PluginCtx<Plugins<TSlots>> : {});
 
 /** The server→client events, read off the merged contract slots. */
 type Outgoing<TSlots> = SlotOr<TSlots, 'outgoing'>;

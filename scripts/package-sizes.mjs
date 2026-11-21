@@ -152,11 +152,66 @@ async function serverSize(adapter, capabilityPaths = []) {
   return bundleSize(source, { platform: 'node', gzip: false, external: SERVER_EXTERNAL });
 }
 
-const [clientMinimal, clientAll, clientBinary] = await Promise.all([
-  clientSize([]),
-  clientSize(CLIENT_PRIMITIVES),
-  clientSize(['binary']),
-]);
+/** The primitives the Collaboration client plugin needs. */
+const COLLABORATION_PRIMITIVES = ['channels', 'binary', 'awareness', 'clientRequests'];
+
+/** A client with what Collaboration needs, and with the plugin too when `withPlugin`. */
+async function collaborationClientSize(withPlugin) {
+  const index = JSON.stringify(await entry('client'));
+  const schema = JSON.stringify(await entry('plugins/collaboration'));
+  const plugin = JSON.stringify(await entry('plugins/collaboration', './client'));
+  const names = COLLABORATION_PRIMITIVES.join(', ');
+  const source = withPlugin
+    ? `
+      import { client, connect, ${names} } from ${index};
+      import { doc, text } from ${schema};
+      import { collaboration } from ${plugin};
+      const HuddleCollaboration = collaboration({ docs: [doc('meeting-notes', { body: text() })] });
+      export const socket = client()(connect('wss://huddle.example/huddle'), ${COLLABORATION_PRIMITIVES.map((name) => `${name}()`).join(', ')}, HuddleCollaboration());
+      export const notes = HuddleCollaboration.use(socket).doc('meeting-notes', 'standup');
+    `
+    : `
+      import { client, connect, ${names} } from ${index};
+      export const socket = client()(connect('wss://huddle.example/huddle'), ${COLLABORATION_PRIMITIVES.map((name) => `${name}()`).join(', ')});
+    `;
+
+  return bundleSize(source, { platform: 'browser', gzip: true });
+}
+
+/** What the Collaboration server plugin, with Yjs, adds to a Node app with channels. */
+async function collaborationServerSize() {
+  const nodeAdapter = ADAPTERS.find((adapter) => adapter[0] === 'node');
+  const base = await serverSize(nodeAdapter, ['./channels']);
+  const source = `
+    import { server } from ${JSON.stringify(await entry('server'))};
+    import { channels } from ${JSON.stringify(await entry('server', './channels'))};
+    import * as adapter from ${JSON.stringify(await entry('server-adapters/node'))};
+    import { doc, text } from ${JSON.stringify(await entry('plugins/collaboration'))};
+    import { collaboration } from ${JSON.stringify(await entry('plugins/collaboration', './server'))};
+    const HuddleCollaboration = collaboration({
+      docs: [doc('meeting-notes', { body: text() })],
+      access: () => 'edit',
+    });
+    export const huddle = server({ capabilities: [channels(), HuddleCollaboration()] }).assemble({ handlers: [] });
+    export { adapter };
+  `;
+  const withPlugin = await bundleSize(source, {
+    platform: 'node',
+    gzip: false,
+    external: SERVER_EXTERNAL,
+  });
+
+  return withPlugin - base;
+}
+
+const [clientMinimal, clientAll, clientBinary, collaborationBase, collaborationClient] =
+  await Promise.all([
+    clientSize([]),
+    clientSize(CLIENT_PRIMITIVES),
+    clientSize(['binary']),
+    collaborationClientSize(false),
+    collaborationClientSize(true),
+  ]);
 
 const adapters = {};
 for (const adapter of ADAPTERS) {
@@ -173,6 +228,13 @@ const nodeWithChannels = await serverSize(nodeAdapter, ['./channels']);
 const sizes = {
   client: { minimal: clientMinimal, all: clientAll, binary: clientBinary - clientMinimal },
   server: { channels: nodeWithChannels - adapters.node.minimal, adapters },
+  // What each plugin adds, with the libraries it needs (Yjs for Collaboration).
+  plugins: {
+    collaboration: {
+      client: collaborationClient - collaborationBase,
+      server: await collaborationServerSize(),
+    },
+  },
 };
 
 await writeFile(output, `${JSON.stringify(sizes, null, 2)}\n`);

@@ -102,7 +102,7 @@ describe('channels() capability', () => {
     const primitive = channelPrimitive(base.assemble({ handlers: [handleSay] }).primitives);
 
     const childKinds = primitive.primitives.map((p: { __livething: string }) => p.__livething);
-    expect(childKinds).toContain('onSubscribe');
+    expect(childKinds).toContain('on-subscribe');
     expect(childKinds).toContain('incoming');
   });
 

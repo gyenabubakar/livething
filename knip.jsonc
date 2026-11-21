@@ -30,6 +30,10 @@
       "entry": ["src/**/*.test.ts", "src/**/*.test-d.ts"],
       "project": ["src/**/*.ts"],
     },
+    "plugins/collaboration": {
+      "entry": ["src/**/*.test-d.ts", "src/**/*.bench.ts"],
+      "project": ["src/**/*.ts"],
+    },
     "server-adapters/cloudflare": {
       "entry": ["src/**/*.test-d.ts"],
       "project": ["src/**/*.ts"],

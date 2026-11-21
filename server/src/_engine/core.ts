@@ -242,11 +242,17 @@ export class EngineCore {
   readonly tagGroupSchemas = new Map<string, Validator>();
 
   /**
-   * Per-connection API factories for plugins registered through the new
-   * `plugin(...)` model, keyed by plugin id. `ctx.plugin(id)` runs the matching
-   * factory against a plugin-scoped context. Empty when no such plugin is listed.
+   * Every listed plugin's API factory, keyed by plugin id, or `undefined` for a
+   * plugin with no `api`. `plugin(id)` runs the matching factory once against a
+   * plugin-scoped connectionless context.
    */
-  readonly pluginApiFactories = new Map<string, (ctx: unknown) => unknown>();
+  readonly pluginApiFactories = new Map<string, ((ctx: unknown) => unknown) | undefined>();
+
+  /** Each plugin's built API, by plugin id. A plugin's `api` is connectionless, so one serves every caller. */
+  readonly pluginApis = new Map<string, unknown>();
+
+  /** The plugin ids whose api factories are running now, outermost first, to name a cycle. */
+  readonly pluginApisBuilding: string[] = [];
 
   readonly declaredErrorCodes = new Set<string>([
     // The engine's own fallback code for any non-LiveThingError. It is always a
@@ -353,7 +359,8 @@ export class EngineCore {
 
     this.platform = options.platform;
     this.logger = options.logger;
-    this.messageLimits = resolveMessageLimits(options);
+    // Frozen: every ctx hands out this same object as `ctx.messageLimits`.
+    this.messageLimits = Object.freeze(resolveMessageLimits(options));
     this.writeGate = options.writeGate;
     this.userTransactions = new UserTransactionTracker(
       (error) => {

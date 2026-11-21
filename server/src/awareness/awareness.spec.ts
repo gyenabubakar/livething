@@ -11,6 +11,9 @@ import { awareness } from '~/awareness/capability.ts';
 import { channels } from '~/channel/capability.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { emits } from '~/emits/emits.ts';
+import { errors as errorsCapability } from '~/errors/capability.ts';
+import { error as defineError } from '~/index.ts';
+import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
@@ -211,34 +214,6 @@ describe('awareness config', () => {
     });
 
     expect(() => base.assemble({ handlers: [] })).toThrow(/awareness\(\) is channel-only/);
-  });
-
-  it('refuses awareness() on a plugin channel', async () => {
-    const scoped = server({ scope: 'plugin', capabilities: [channels()] });
-    const feed = scoped.channel('feed', {
-      capabilities: [awareness()],
-      awareness: { state: viewing },
-    });
-    const ping = feed.on('ping', { run() {} });
-    const Feed = plugin('acme:feed', { definition: scoped.assemble({ handlers: [ping] }) });
-    const base = server({ capabilities: [channels(), Feed()] });
-
-    let engine!: Engine;
-    adapter({
-      id: 'awareness-plugin-spec',
-      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
-      setup(createEngine) {
-        engine = createEngine({
-          storage: createTestStorage(),
-          timers: createTestTimers(),
-          platform: {},
-          logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-        });
-        return {};
-      },
-    })(base.assemble({ handlers: [] }), undefined as never);
-
-    await expect(engine.initialize()).rejects.toThrow(/is for app channels/);
   });
 
   it('refuses two awareness() in one channel', () => {
@@ -771,6 +746,105 @@ describe('awareness', () => {
   });
 });
 
+describe('awareness as a lock', () => {
+  type Member = Awaited<ReturnType<typeof connect>>;
+  type Lockable = { viewingMessageId: string | null; editingTopic: boolean };
+  type LockCtx = {
+    connection: { id: string };
+    channel: { awareness: { list(): { connectionId: string; state: Lockable }[] } };
+  };
+
+  const lock = {
+    state: v.object({ viewingMessageId: v.nullable(v.string()), editingTopic: v.boolean() }),
+    check: (ctx: LockCtx, state: Lockable) =>
+      !state.editingTopic ||
+      ctx.channel.awareness
+        .list()
+        .every((entry) => entry.connectionId === ctx.connection.id || !entry.state.editingTopic),
+  };
+
+  const idle = { viewingMessageId: null, editingTopic: false };
+  const editing = { viewingMessageId: null, editingTopic: true };
+
+  /** The connections whose newest state, as `watcher` saw it, holds the lock. */
+  function holders(watcher: { changes(): Change[] }): string[] {
+    const latest = new Map<string, unknown>();
+    for (const change of watcher.changes()) latest.set(change.connectionId, change.state);
+    return [...latest]
+      .filter(([, state]) => (state as Lockable | null)?.editingTopic === true)
+      .map(([connectionId]) => connectionId);
+  }
+
+  async function room() {
+    const { engine } = buildEngine({ awareness: lock });
+    await engine.initialize();
+    const alice = await connect(engine, 'alice');
+    const bob = await connect(engine, 'bob');
+    const carol = await connect(engine, 'carol');
+
+    for (const member of [alice, bob, carol]) await member.subscribe();
+    await quiet();
+
+    return { alice, bob, carol };
+  }
+
+  it('gives the lock to only one of two members who ask in one window', async () => {
+    const { alice, bob, carol } = await room();
+
+    await carol.set(idle);
+    await bob.set(editing);
+    await alice.set(editing);
+    await quiet();
+
+    expect(holders(carol)).toEqual([bob.id]);
+    expect(bob.refusals()).toEqual([]);
+    expect(alice.refusals()).toEqual(['check']);
+  });
+
+  it('refuses the lock while another member holds it, across windows', async () => {
+    const { alice, bob, carol } = await room();
+
+    await bob.set(editing);
+    await quiet();
+    await alice.set(editing);
+    await quiet();
+
+    expect(holders(carol)).toEqual([bob.id]);
+    expect(alice.refusals()).toEqual(['check']);
+  });
+
+  it('lets the holder update its other fields and keep the lock', async () => {
+    const { bob, carol } = await room();
+
+    await bob.set(editing);
+    await quiet();
+    await bob.set({ viewingMessageId: 'm1', editingTopic: true });
+    await quiet();
+
+    expect(holders(carol)).toEqual([bob.id]);
+    expect(bob.refusals()).toEqual([]);
+  });
+
+  it.each([
+    ['clears its state', (holder: Member) => holder.set(null)],
+    ['sets editingTopic to false', (holder: Member) => holder.set(idle)],
+    ['leaves the channel', (holder: Member) => holder.unsubscribe()],
+  ])('frees the lock when the holder %s', async (_, release) => {
+    const { alice, bob, carol } = await room();
+
+    await bob.set(editing);
+    await quiet();
+    await release(bob);
+    await quiet();
+
+    await alice.set(editing);
+    await quiet();
+
+    expect(holders(carol)).toEqual([alice.id]);
+    expect(alice.refusals()).toEqual([]);
+  });
+});
+
 describe('awareness and hibernation', () => {
   const generalKey = createChannelMembershipKey('room:general', 'rooms');
   const randomKey = createChannelMembershipKey('room:random', 'rooms');
@@ -991,5 +1065,281 @@ describe('awareness and hibernation', () => {
     const dave = await connect(engine, 'dave');
     await dave.subscribe();
     expect(dave.of('__awarenessSync__')[0]![1]).toEqual({ entries: [] });
+  });
+});
+
+describe('awareness on plugin channels', () => {
+  const feedRouting = { channel: { name: '__acme:docs::feed' } };
+  const launchRouting = { channel: { name: 'doc:launch', family: '__acme:docs::docs' } };
+  const notesRouting = { channel: { name: 'doc:notes', family: '__acme:docs::docs' } };
+
+  function buildPluginEngine(options: { hibernation?: boolean } = {}) {
+    const seen: { channel: string; count: number }[] = [];
+    const scoped = server({ scope: 'plugin', capabilities: [channels()] });
+    const awarenessConfig = {
+      capabilities: [awareness()],
+      awareness: {
+        state: viewing,
+        check: (_ctx: unknown, state: { viewingMessageId: string | null }) =>
+          state.viewingMessageId !== 'forbidden',
+      },
+    };
+
+    const feed = scoped.channel('feed', awarenessConfig);
+    const docs = scoped.channel(['docs', 'doc:{docId}'], awarenessConfig);
+
+    const countFeed = feed.on('count', {
+      run(ctx) {
+        seen.push({ channel: 'feed', count: ctx.channel.awareness.list().length });
+      },
+    });
+    const countDoc = docs.on('count', {
+      run(ctx) {
+        seen.push({ channel: ctx.channel.name, count: ctx.channel.awareness.list().length });
+        ctx.channel.awareness.set(ctx.connection.id, { viewingMessageId: 'from-server' });
+      },
+    });
+    const Docs = plugin('acme:docs', {
+      definition: scoped.assemble({ handlers: [countFeed, countDoc] }),
+    });
+    const base = server({
+      authenticate: () => ({}),
+      ...(options.hibernation ? { hibernation: true } : {}),
+      capabilities: [channels(), Docs()],
+    });
+
+    const storage = createTestStorage();
+    let engine!: Engine;
+    adapter({
+      id: 'awareness-plugin-spec',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      ...(options.hibernation
+        ? {
+            hibernation: {
+              persist: vi.fn(),
+              restore: (socket: unknown) => ({ id: (socket as { id: string }).id }),
+            },
+          }
+        : {}),
+      setup(createEngine) {
+        engine = createEngine({
+          storage,
+          timers: createTestTimers(),
+          platform: {},
+          logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        });
+        return {};
+      },
+    })(base.assemble({ handlers: [] }), undefined as never);
+
+    return { engine, storage, seen };
+  }
+
+  it.each([
+    ['a fixed channel', feedRouting],
+    ['a family room', launchRouting],
+  ])('sends a state to the other members of %s, and check refuses a bad one', async (_, to) => {
+    const { engine } = buildPluginEngine();
+    await engine.initialize();
+    const alice = await connect(engine, 'alice');
+    const bob = await connect(engine, 'bob');
+    await alice.subscribe(to);
+
+    await bob.subscribe(to);
+    expect(bob.of('__subscribeOk__')[0]![2]!.channel).toMatchObject({
+      ...to.channel,
+      awareness: { maxBytes: expect.any(Number) },
+    });
+    await quiet();
+
+    await alice.set({ viewingMessageId: 'm1' }, to);
+    await bob.set({ viewingMessageId: 'forbidden' }, to);
+    await quiet();
+
+    expect(bob.changes()).toEqual([
+      expect.objectContaining({ connectionId: alice.id, state: { viewingMessageId: 'm1' } }),
+    ]);
+    expect(bob.of('__awareness__')[0]![2]).toEqual(to);
+    expect(bob.refusals()).toEqual(['check']);
+
+    await alice.unsubscribe(to);
+    expect(bob.changes().at(-1)).toEqual({ connectionId: alice.id, state: null });
+  });
+
+  it('gives plugin handlers ctx.channel.awareness, with each room of a family kept apart', async () => {
+    const { engine, seen } = buildPluginEngine();
+    await engine.initialize();
+    const alice = await connect(engine, 'alice');
+    const bob = await connect(engine, 'bob');
+    for (const member of [alice, bob]) {
+      await member.subscribe(feedRouting);
+      await member.subscribe(launchRouting);
+    }
+
+    await bob.subscribe(notesRouting);
+    await quiet();
+
+    await alice.set({ viewingMessageId: 'm1' }, feedRouting);
+    await alice.set({ viewingMessageId: 'm1' }, launchRouting);
+    await bob.set({ viewingMessageId: 'm2' }, notesRouting);
+    await quiet();
+
+    await alice.send('__acme:docs::count', feedRouting);
+    await alice.send('__acme:docs::count', launchRouting);
+    await quiet();
+
+    expect(seen).toEqual([
+      { channel: 'feed', count: 1 },
+      { channel: 'doc:launch', count: 1 },
+    ]);
+    expect(bob.changes().at(-1)).toMatchObject({
+      connectionId: alice.id,
+      state: { viewingMessageId: 'from-server' },
+    });
+    expect(bob.of('__awareness__').at(-1)![2]).toEqual(launchRouting);
+  });
+
+  it('brings back the state of a woken connection in a plugin family room', async () => {
+    const { engine, storage } = buildPluginEngine({ hibernation: true });
+    await engine.initialize();
+    const launchKey = createChannelMembershipKey('doc:launch', '__acme:docs::docs');
+    writeConnectionRow(storage.sql, {
+      connection_id: 'kofi',
+      user_id: 'kofi',
+      meta: { name: 'kofi' },
+      ephemeral_tags: [],
+      ephemeral_memberships: [{ channelName: 'doc:launch', channelFamily: '__acme:docs::docs' }],
+      active_stream_ids: [],
+      awareness: {
+        [launchKey]: { state: '{"viewingMessageId":"m1"}', meta: '{"name":"kofi"}', updatedAt: 1 },
+      } as never,
+    });
+    const kofi = { id: 'kofi', send() {}, close() {} };
+
+    await engine.restoreHibernatedConnections([kofi]);
+
+    const dave = await connect(engine, 'dave');
+    await dave.subscribe(launchRouting);
+    expect(dave.of('__awarenessSync__')[0]![1]).toEqual({
+      entries: [
+        expect.objectContaining({ connectionId: 'kofi', state: { viewingMessageId: 'm1' } }),
+      ],
+    });
+
+    await engine
+      .handleHibernationWake(kofi)
+      .handleMessage(
+        JSON.stringify(['__awarenessSet__', { state: { viewingMessageId: 'm2' } }, launchRouting]),
+      );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(dave.changes()).toEqual([
+      { connectionId: 'kofi', memberId: 'kofi', state: { viewingMessageId: 'm2' } },
+    ]);
+
+    await dave.set({ viewingMessageId: 'm3' }, launchRouting);
+    await quiet();
+    await quiet();
+    expect(readConnectionRow(storage.sql, dave.id)?.awareness).toEqual({
+      [launchKey]: expect.objectContaining({ state: '{"viewingMessageId":"m3"}' }),
+    });
+  });
+
+  it("gives an error a plugin's awareness check throws the plugin's own error code", async () => {
+    const Denied = defineError('denied');
+    const scoped = server({
+      scope: 'plugin',
+      capabilities: [channels(), errorsCapability([Denied])],
+    });
+    const docs = scoped.channel(['docs', 'doc:{docId}'], {
+      capabilities: [awareness()],
+      awareness: {
+        state: viewing,
+        check: () => {
+          throw Denied();
+        },
+      },
+    });
+    const Docs = plugin('acme:docs', { definition: scoped.assemble({ handlers: [docs] }) });
+    const codes: string[] = [];
+
+    const base = server({
+      authenticate: () => ({}),
+      capabilities: [channels(), Docs()],
+      onError(_ctx, error) {
+        codes.push((error as { code: string }).code);
+      },
+    });
+    let engine!: Engine;
+
+    adapter({
+      id: 'awareness-plugin-error-spec',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        engine = createEngine({
+          storage: createTestStorage(),
+          timers: createTestTimers(),
+          platform: {},
+          logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        });
+        return {};
+      },
+    })(base.assemble({ handlers: [] }), undefined as never);
+    await engine.initialize();
+    const alice = await connect(engine, 'alice');
+
+    await alice.subscribe(launchRouting);
+    await quiet();
+    await alice.set({ viewingMessageId: 'm1' }, launchRouting);
+    await quiet();
+
+    expect(codes).toEqual(['__acme:docs::denied']);
+  });
+
+  it("runs a plugin channel's awareness check with the plugin's own ctx", async () => {
+    const scoped = server({
+      scope: 'plugin',
+      capabilities: [channels(), tags((ephemeral) => [ephemeral('editors')])],
+    });
+    const docs = scoped.channel(['docs', 'doc:{docId}'], {
+      capabilities: [awareness()],
+      awareness: {
+        state: viewing,
+        check: (ctx) => ctx.tags.ephemeral('editors').has(ctx.channel.name),
+      },
+      commit(ctx) {
+        if (ctx.user.id !== 'guest') ctx.tags.ephemeral('editors').add(ctx.channel.name);
+      },
+    });
+    const Docs = plugin('acme:docs', { definition: scoped.assemble({ handlers: [docs] }) });
+    const base = server({ authenticate: () => ({}), capabilities: [channels(), Docs()] });
+    let engine!: Engine;
+
+    adapter({
+      id: 'awareness-plugin-ctx-spec',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        engine = createEngine({
+          storage: createTestStorage(),
+          timers: createTestTimers(),
+          platform: {},
+          logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        });
+        return {};
+      },
+    })(base.assemble({ handlers: [] }), undefined as never);
+    await engine.initialize();
+    const alice = await connect(engine, 'alice');
+    const guest = await connect(engine, 'guest');
+
+    await alice.subscribe(launchRouting);
+    await guest.subscribe(launchRouting);
+    await quiet();
+
+    await alice.set({ viewingMessageId: 'm1' }, launchRouting);
+    await guest.set({ viewingMessageId: 'm2' }, launchRouting);
+    await quiet();
+
+    expect(alice.refusals()).toEqual([]);
+    expect(guest.refusals()).toEqual(['check']);
   });
 });

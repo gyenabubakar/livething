@@ -138,8 +138,8 @@ describe('server() send/receive core', () => {
 
     expect(compiled.incoming.has('echo')).toBe(true);
     expect(compiled.outgoing.has('welcome')).toBe(true);
-    expect(definition.primitives.some((p) => p.__livething === 'onAuthenticate')).toBe(true);
-    expect(definition.primitives.some((p) => p.__livething === 'onConnect')).toBe(true);
+    expect(definition.primitives.some((p) => p.__livething === 'on-authenticate')).toBe(true);
+    expect(definition.primitives.some((p) => p.__livething === 'on-connect')).toBe(true);
     expect(definition.primitives.some((p) => p.__livething === 'errors')).toBe(true);
   });
 

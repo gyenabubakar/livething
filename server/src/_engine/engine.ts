@@ -11,7 +11,7 @@ import {
 } from '~/_engine/runtime/invocation-scope.ts';
 import { moveTokenToAuthorization } from '~/_engine/runtime/token.ts';
 import { RESERVED_ADMIN_API_NAMES } from '~/admin/context.ts';
-import { createInitContext } from '~/lifecycle/context.ts';
+import { createHostContext } from '~/lifecycle/context.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
@@ -220,11 +220,7 @@ export class Engine<TApi = unknown> {
 
   /** Build the helper bag passed to every `onAuthenticate` hook. @internal */
   private buildAuthHelpers(): LifecycleTypes.AuthHelpers {
-    const ctx = createInitContext({
-      logger: this.core.logger,
-      platform: this.core.platform,
-      getStorageView: EngineDeps.commonDeps(this.core).getStorageView,
-    });
+    const ctx = createHostContext(EngineDeps.commonDeps(this.core));
     if (!this.core.usesTags()) return { ctx };
 
     const isDeclared = (kind: 'ephemeral' | 'persistent', group: string) =>

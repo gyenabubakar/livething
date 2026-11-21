@@ -52,7 +52,7 @@ export namespace JSX {
   }
   export interface IntrinsicElements {
     div: HtmlProps;
-    li: HtmlProps;
+    li: HtmlProps & { onClick?: () => void };
     span: HtmlProps;
     ul: HtmlProps;
   }

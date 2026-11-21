@@ -1,3 +1,4 @@
+import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as FeatureSlots from '~/_engine/runtime/feature-slots.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -51,6 +52,9 @@ export interface ContextCommonDeps {
   logger: PublicApi.Logger;
 
   platform: unknown;
+
+  /** The adapter's message limits, frozen. */
+  messageLimits: Readonly<EngineAdapterTypes.MessageLimits>;
 
   /**
    * The engine's instance id, or `undefined` when running single-instance.
@@ -211,4 +215,6 @@ export interface CreateConnectionlessContextDeps extends ContextCommonDeps {
   usersByKey: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   /** Drop a user everywhere and close their sockets. Closes over the engine core. */
   purgeUser(userId: string, options?: PublicApi.PurgeUserOptions): Promise<void>;
+  /** A registered plugin's API by id. Throws for an id no plugin has. */
+  plugin(id: string): unknown;
 }

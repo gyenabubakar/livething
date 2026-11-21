@@ -48,6 +48,8 @@ export interface EngineAccessDeps {
   buildCurrentContext(): unknown;
   /** Build the context with no connection: the one scheduled task bodies receive. */
   buildConnectionlessContext(): unknown;
+  /** A listed plugin's api, built once. Throws for an id no plugin has. */
+  pluginApi(id: string): unknown;
   /**
    * Build the context object for one connection by id, or `undefined` when no
    * such connection is live. Unlike `buildCurrentContext`, this does not need a
@@ -290,7 +292,7 @@ export function createEngineAccess(
 
       core.pluginApiFactories.set(id, factory);
     },
-    getPluginApiFactory: (id) => core.pluginApiFactories.get(id),
+    getPluginApi: (id) => deps.pluginApi(id),
     registerPluginLifecycle: (kind, pluginId, handler) => {
       core.hooks.pluginLifecycle[kind].push({ pluginId, handler });
     },

@@ -27,7 +27,12 @@ export interface TagRefHandle<Meta = Record<string, unknown>> extends TagRef {
  * Carries every operation that targets the group as a whole and builds refs
  * for one specific key inside the group.
  */
-export interface TagGroupHandle<Meta = Record<string, unknown>, TSlots = {}> {
+export interface TagGroupHandle<
+  Meta = Record<string, unknown>,
+  TSlots = {},
+  /** The group's key type, from its `t<T>()` marker or schema. */
+  TKey extends string = string,
+> {
   /** Brand tag so the type cannot be confused with a plain object. */
   readonly __livething: 'group-handle';
   /** Whether this group is ephemeral or persistent. */
@@ -36,11 +41,11 @@ export interface TagGroupHandle<Meta = Record<string, unknown>, TSlots = {}> {
   readonly group: string;
 
   /** Add `key` to the current connection's set under this group. */
-  add(key: string): void;
+  add(key: TKey): void;
   /** Remove `key` from the current connection's set under this group. */
-  remove(key: string): void;
+  remove(key: TKey): void;
   /** Whether the current connection holds `key` under this group. */
-  has(key: string): boolean;
+  has(key: TKey): boolean;
 
   /** Broadcast an event to every connection on this instance with any key under this group. */
   broadcast(event: string, payload: unknown): void;
@@ -52,7 +57,7 @@ export interface TagGroupHandle<Meta = Record<string, unknown>, TSlots = {}> {
   keys(): readonly string[];
 
   /** Build a `TagRefHandle` addressing one specific `(kind, group, key)`. */
-  ref(key: string): TagRefHandle<Meta> & TagBinaryArm<TSlots>;
+  ref(key: TKey): TagRefHandle<Meta> & TagBinaryArm<TSlots>;
   /** Current connection's keys under this group. */
   list(): readonly TagRef[];
 }
@@ -79,19 +84,28 @@ interface TagBinaryArm<TSlots> {
     : never;
 }
 
+/** A group's key type: its declared type, or `string`. */
+type KeyOf<T> = T extends string ? T : string;
+
 /**
  * The surface attached to `ctx.tags`. Two methods — one per kind — return a
  * typed group handle. `ephemeral(name)` only accepts group names declared
  * under the `tags:` builder (`ephemeral` kind); likewise for `persistent`.
  */
 export interface TagsApi<
-  TEphemeralGroups extends string = string,
-  TPersistentGroups extends string = string,
+  /** Each declared ephemeral group, by name, with the type of its keys. */
+  TEphemeral = Record<string, string>,
+  /** Each declared persistent group, by name, with the type of its keys. */
+  TPersistent = Record<string, string>,
   Meta = Record<string, unknown>,
   TSlots = {},
 > {
-  ephemeral(group: TEphemeralGroups): TagGroupHandle<Meta, TSlots> & TagBinaryArm<TSlots>;
-  persistent(group: TPersistentGroups): TagGroupHandle<Meta, TSlots> & TagBinaryArm<TSlots>;
+  ephemeral<G extends keyof TEphemeral & string>(
+    group: G,
+  ): TagGroupHandle<Meta, TSlots, KeyOf<TEphemeral[G]>> & TagBinaryArm<TSlots>;
+  persistent<G extends keyof TPersistent & string>(
+    group: G,
+  ): TagGroupHandle<Meta, TSlots, KeyOf<TPersistent[G]>> & TagBinaryArm<TSlots>;
   /** Every tag ref currently attached to the current connection. */
   list(): readonly TagRef[];
 }

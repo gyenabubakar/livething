@@ -137,9 +137,8 @@ export function setup(): void {
     socket.send('get-outgoing-count', {});
   });
 
-  // A plugin-backed stream: each chunk carries the current connection id read
-  // from the plugin api inside the generator, proving plugin streams reach the
-  // typed client.
+  // A stream on the plugins server: each chunk carries the stream owner's
+  // connection id, read inside the generator.
   button('stream-conn-id', async () => {
     const handle = await socket.stream('stream-connection-id', { count: 3 });
     for await (const chunk of handle) {

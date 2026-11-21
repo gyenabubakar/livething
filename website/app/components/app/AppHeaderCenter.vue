@@ -5,217 +5,169 @@ const isHome = computed(() => route.path === '/')
 const landingItems = [
   {
     label: 'Start',
-    to: '/start/introduction',
+    to: '/core/start/introduction',
     children: [
       {
         label: 'Introduction',
         icon: 'i-ph-hand-waving-duotone',
         description: 'Two packages, one typed contract',
-        to: '/start/introduction'
+        to: '/core/start/introduction'
       },
       {
         label: 'What is WebSocket?',
         icon: 'i-ph-plugs-connected-duotone',
         description: 'A primer on the protocol underneath',
-        to: '/start/what-is-websocket'
+        to: '/core/start/what-is-websocket'
       },
       {
         label: 'Why LiveThing',
         icon: 'i-ph-lightbulb-duotone',
         description: 'What you stop hand-building',
-        to: '/start/why-livething'
+        to: '/core/start/why-livething'
       },
       {
         label: 'Installation',
         icon: 'i-ph-download-simple-duotone',
         description: 'Client, server, and an adapter',
-        to: '/start/installation'
+        to: '/core/start/installation'
       },
       {
         label: 'Quickstart',
         icon: 'i-ph-lightning-duotone',
         description: 'A tiny end-to-end app in minutes',
-        to: '/start/quickstart'
-      }
-    ]
-  },
-  {
-    label: 'Learn',
-    to: '/learn/overview',
-    children: [
-      {
-        label: 'The Contract',
-        icon: 'i-ph-scroll-duotone',
-        description: 'One inferred type, both sides',
-        to: '/learn/the-contract'
-      },
-      {
-        label: 'Capabilities & Primitives',
-        icon: 'i-ph-puzzle-piece-duotone',
-        description: 'The matched opt-in pair',
-        to: '/learn/capabilities-and-primitives'
-      },
-      {
-        label: 'Messaging',
-        icon: 'i-ph-chat-circle-dots-duotone',
-        description: 'Events, requests, errors, validation',
-        to: '/learn/messaging'
-      },
-      {
-        label: 'Channels',
-        icon: 'i-ph-users-three-duotone',
-        description: 'Server-managed rooms with auth',
-        to: '/learn/channels'
-      },
-      {
-        label: 'Streaming',
-        icon: 'i-ph-waveform-duotone',
-        description: 'Progressive, chunked data',
-        to: '/learn/streaming'
-      },
-      {
-        label: 'Reliability',
-        icon: 'i-ph-pulse-duotone',
-        description: 'Reconnection, keepalive, replay',
-        to: '/learn/reliability'
-      },
-      {
-        label: 'Identity & Access',
-        icon: 'i-ph-key-duotone',
-        description: 'Auth, tags, and rate limiting',
-        to: '/learn/identity-and-access'
+        to: '/core/start/quickstart'
       }
     ]
   },
   {
     label: 'Server',
-    to: '/server/overview',
+    to: '/core/server/overview',
     children: [
       {
         label: 'server()',
         icon: 'i-ph-brackets-curly-duotone',
         description: 'The builder and assemble',
-        to: '/server/server/overview'
+        to: '/core/server/server/overview'
       },
       {
         label: 'Capabilities',
         icon: 'i-ph-puzzle-piece-duotone',
         description: 'The opt-in feature catalog',
-        to: '/server/capabilities/overview'
+        to: '/core/server/capabilities/overview'
       },
       {
         label: 'Handlers',
         icon: 'i-ph-brackets-angle-duotone',
         description: 'on, request, stream, scheduled',
-        to: '/server/handlers/overview'
+        to: '/core/server/handlers/overview'
       },
       {
         label: 'Channels',
         icon: 'i-ph-users-three-duotone',
         description: 'Rooms, the auth gate, families',
-        to: '/server/channels/overview'
+        to: '/core/server/channels/overview'
       },
       {
         label: 'Streams',
         icon: 'i-ph-waveform-duotone',
         description: 'Plain, durable, and broadcast',
-        to: '/server/streams/overview'
+        to: '/core/server/streams/overview'
       },
       {
         label: 'Replay',
         icon: 'i-ph-clock-counter-clockwise-duotone',
         description: 'Catch up after a disconnect',
-        to: '/server/replay/overview'
+        to: '/core/server/replay/overview'
       },
       {
         label: 'Plugins',
         icon: 'i-ph-plug-duotone',
         description: 'Package a reusable feature',
-        to: '/server/plugins/overview'
+        to: '/core/server/plugins/overview'
       },
       {
         label: 'Under the hood',
         icon: 'i-ph-gear-duotone',
         description: 'The engine and pipeline order',
-        to: '/server/under-the-hood/overview'
-      }
-    ]
-  },
-  {
-    label: 'Server Runtimes',
-    to: '/runtimes/overview',
-    children: [
-      {
-        label: 'Runtimes',
-        icon: 'i-ph-cpu-duotone',
-        description: 'Run the definition on a platform',
-        to: '/runtimes/adapters/overview'
-      },
-      {
-        label: 'Cloudflare',
-        icon: 'i-simple-icons-cloudflare',
-        description: 'Durable Objects and a Worker',
-        to: '/runtimes/adapters/cloudflare'
-      },
-      {
-        label: 'Node.js',
-        icon: 'i-simple-icons-nodedotjs',
-        description: 'Your own Node HTTP server',
-        to: '/runtimes/adapters/node'
-      },
-      {
-        label: 'Node Frameworks',
-        icon: 'i-ph-stack-duotone',
-        description: 'Express, Hono, Nuxt, and more',
-        to: '/runtimes/node-frameworks/overview'
-      },
-      {
-        label: 'Transports',
-        icon: 'i-ph-arrows-left-right-duotone',
-        description: 'WebSocket, http(), or your own',
-        to: '/runtimes/transports/overview'
+        to: '/core/server/under-the-hood/overview'
       }
     ]
   },
   {
     label: 'Client',
-    to: '/client/overview',
+    to: '/core/client/overview',
     children: [
       {
         label: 'Connecting',
         icon: 'i-ph-plugs-connected-duotone',
         description: 'Options, dynamic URLs, auth, SSR',
-        to: '/client/connecting/overview'
+        to: '/core/client/connecting/overview'
       },
       {
         label: 'Transports',
         icon: 'i-ph-arrows-left-right-duotone',
         description: 'WebSocket, http(), and failover',
-        to: '/client/transports/overview'
+        to: '/core/client/transports/overview'
       },
       {
         label: 'Primitives',
         icon: 'i-ph-puzzle-piece-duotone',
         description: 'Every built-in client primitive',
-        to: '/client/primitives/overview'
+        to: '/core/client/primitives/overview'
       },
       {
         label: 'Channels',
         icon: 'i-ph-users-three-duotone',
         description: 'Handles, families, and presence',
-        to: '/client/channels/overview'
+        to: '/core/client/channels/overview'
       },
       {
         label: 'Streams',
         icon: 'i-ph-waveform-duotone',
         description: 'Consume, nudge, continue, broadcast',
-        to: '/client/streams/overview'
+        to: '/core/client/streams/overview'
       },
       {
         label: 'Errors',
         icon: 'i-ph-warning-duotone',
         description: 'How errors surface and narrow',
-        to: '/client/errors/overview'
+        to: '/core/client/errors/overview'
+      }
+    ]
+  },
+  {
+    label: 'Plugins',
+    to: '/plugins/collaboration/overview',
+    children: [
+      {
+        label: 'Chat',
+        icon: 'i-ph-chats-circle-duotone',
+        description: 'Rooms, threads and history',
+        to: '/plugins/chat/overview'
+      },
+      {
+        label: 'Push Notifications',
+        icon: 'i-ph-bell-ringing-duotone',
+        description: 'Reach people when their socket is closed',
+        to: '/plugins/push-notifications/overview'
+      },
+      {
+        label: 'Collaboration',
+        icon: 'i-ph-users-four-duotone',
+        description: 'Shared documents and state many people edit',
+        to: '/plugins/collaboration/overview'
+      },
+      {
+        label: 'Notifications Feed',
+        icon: 'i-ph-tray-arrow-down-duotone',
+        description: 'An in-app inbox in sync on every device',
+        to: '/plugins/notifications-feed/overview'
+      },
+      {
+        label: 'Comments',
+        icon: 'i-ph-chat-teardrop-text-duotone',
+        description: 'Threads on messages, files and documents',
+        to: '/plugins/comments/overview'
       }
     ]
   }
@@ -235,12 +187,5 @@ const landingItems = [
       viewport: 'bg-default backdrop-blur-xl ring ring-offset-6 ring-offset-bg ring-default border border-default',
       viewportWrapper: 'w-[600px] transition-all duration-500 left-1/2 -translate-x-1/2',
     }"
-  />
-  <UContentSearchButton
-    v-else
-    :collapsed="false"
-    class="w-full"
-    variant="soft"
-    :ui="{ leadingIcon: 'size-4 mr-1' }"
   />
 </template>

@@ -19,6 +19,14 @@ describe('compileChannelTemplate — valid templates', () => {
     expect(match('room:{id}', 'lobby:1')).toBeNull();
   });
 
+  it('a param matches line breaks too', () => {
+    expect(match('room:{id}', 'room:a\nb c')).toEqual({ id: 'a\nb c' });
+    expect(match('{type}:{id}', 'task-board:line\r\nbreak')).toEqual({
+      type: 'task-board',
+      id: 'line\r\nbreak',
+    });
+  });
+
   it('multiple params separated by literals match lazily', () => {
     const c = compileChannelTemplate('org:{org}/thread:{tid}');
     expect(c.paramNames).toEqual(['org', 'tid']);

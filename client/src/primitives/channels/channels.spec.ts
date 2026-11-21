@@ -135,6 +135,18 @@ describe('subscribe / unsubscribe', () => {
     await expect(promise).rejects.toMatchObject({ code: 'disconnected' });
   });
 
+  it('shows a pending subscribe a drop rejected as unsubscribed, not subscribing', async () => {
+    const { socket } = build(channels());
+    const room = socket.channel('general');
+    const promise = room.subscribe();
+    expect(room.status.get()).toBe('subscribing');
+
+    socket.disconnect();
+
+    await expect(promise).rejects.toMatchObject({ code: 'disconnected' });
+    expect(room.status.get()).toBe('unsubscribed');
+  });
+
   it('requires a new subscribe after an intentional disconnect', async () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');

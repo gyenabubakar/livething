@@ -64,7 +64,7 @@ describe('tags() capability', () => {
     });
     const authPrimitive = base
       .assemble({ handlers: [] })
-      .primitives.find((p) => p.__livething === 'onAuthenticate') as unknown as {
+      .primitives.find((p) => p.__livething === 'on-authenticate') as unknown as {
       handler(request: Request, helpers: unknown): Promise<{ tags?: unknown }>;
     };
     const result = await authPrimitive.handler(new Request('http://x'), {});
@@ -82,7 +82,7 @@ describe('tags() capability', () => {
     });
     const authPrimitive = base
       .assemble({ handlers: [] })
-      .primitives.find((p) => p.__livething === 'onAuthenticate') as unknown as {
+      .primitives.find((p) => p.__livething === 'on-authenticate') as unknown as {
       handler(request: Request, helpers: unknown): Promise<{ tags?: unknown }>;
     };
     const result = await authPrimitive.handler(new Request('http://x'), {});

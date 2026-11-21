@@ -2,7 +2,6 @@ import { LiveThingConfigError } from '@livething/core';
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { capability } from '~/_define/capability.ts';
 import { namespacePluginPrimitives } from '~/_define/plugin-namespace.ts';
-import { scopePluginContext } from '~/plugin-scope.ts';
 import type { AnyCapability, Capability } from '~/_define/capability.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { ClientPluginContract } from '~/infer-client.ts';
@@ -35,21 +34,21 @@ const ALLOWED_PLUGIN_KINDS = new Set([
   'upload',
   'channel',
   'scheduled',
-  'scheduledSurface',
+  'scheduled-surface',
   'tag-groups',
   'tag-persistence-runtime',
   'errors',
-  'onInit',
-  'onConnect',
-  'onDisconnect',
-  'onShutdown',
-  'onError',
-  'onAuthenticate',
-  'onPing',
-  'onPong',
+  'on-init',
+  'on-connect',
+  'on-disconnect',
+  'on-shutdown',
+  'on-error',
+  'on-authenticate',
+  'on-ping',
+  'on-pong',
   // Hooks that ride along stamped with their owner, not namespaced events.
   'intercept',
-  'outgoingHook',
+  'outgoing-hook',
   // Internal carriers that ride along but need no namespacing.
   'sequence',
   // The server→client request install primitive: a global pending map and ctx
@@ -65,38 +64,17 @@ const ALLOWED_PLUGIN_KINDS = new Set([
 ]);
 
 /** Symbol key for a plugin's API-registration primitive. */
-const PLUGIN_API_KEY = Symbol('pluginApi');
+const PLUGIN_API_KEY = Symbol('plugin-api');
 
 /** Symbol key so the `ctx.plugin` accessor installs once, however many plugins are listed. */
-const PLUGIN_SURFACE_KEY = Symbol('pluginSurface');
+const PLUGIN_SURFACE_KEY = Symbol('plugin-surface');
 
 /**
- * Build the `ctx.plugin(id)` accessor for one connection context. It runs the
- * registered plugin's API factory against a plugin-scoped context (sends prefixed
- * with the plugin namespace) and caches the result by id, so repeated calls in
- * one context return the same API object and the factory runs at most once.
+ * The `ctx.plugin(id)` accessor for connection contexts. A plugin's `api` is
+ * connectionless, so the engine builds it once and every caller shares it.
  */
-function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<string, unknown> {
-  const base = baseCtx as Record<PropertyKey, unknown>;
-  const pluginApiCache = new Map<string, unknown>();
-  return {
-    plugin: (id: string) => {
-      if (pluginApiCache.has(id)) return pluginApiCache.get(id);
-
-      const factory = engine.getPluginApiFactory(id);
-      if (!factory) {
-        throw new Error(
-          `[livething] ctx.plugin('${id}') — no plugin with id '${id}' is registered. ` +
-            'List the plugin in server({ capabilities: [...] }).',
-        );
-      }
-
-      const api = factory(scopePluginContext(id, base));
-      pluginApiCache.set(id, api);
-
-      return api;
-    },
-  };
+function buildPluginAccessor(engine: EngineAccess): Record<string, unknown> {
+  return { plugin: (id: string) => engine.getPluginApi(id) };
 }
 
 /**
@@ -106,12 +84,12 @@ function buildPluginAccessor(engine: EngineAccess, baseCtx: unknown): Record<str
  */
 function pluginSurfacePrimitive(): Primitive {
   return {
-    __livething: 'pluginSurface',
+    __livething: 'plugin-surface',
     __identity: [PLUGIN_SURFACE_KEY],
     __requires: {},
     __setup(engine) {
       engine.installOnce(PLUGIN_SURFACE_KEY, () => {
-        engine.extendContext((baseCtx) => buildPluginAccessor(engine, baseCtx));
+        engine.extendContext(() => buildPluginAccessor(engine));
       });
     },
   };
@@ -201,7 +179,7 @@ export interface PluginCapability<
  * const handleHere = presenceBase.on('here', { run() {} });
  * const definition = presenceBase.assemble({
  *   handlers: [handleHere],
- *   api: (ctx) => ({ whoAmI: () => ctx.connection.id }),
+ *   api: (ctx) => ({ onlineCount: () => ctx.connectionCount }),
  * });
  * export const Presence = plugin('acme:presence', { definition });
  * export type PresenceWire = InferPluginClient<typeof Presence>;
@@ -228,10 +206,10 @@ export type InferPluginClient<TPlugin> = TPlugin extends () => PluginCapability<
     ? ClientPluginContract<TContract>
     : never;
 
-/** Build the primitive whose `__setup` registers the plugin's API factory with the engine. */
-function pluginApiPrimitive(id: string, factory: (ctx: any) => unknown): Primitive {
+/** Registers the plugin's id, with its api factory when it has one, so `plugin(id)` can tell the two apart. */
+function pluginApiPrimitive(id: string, factory: ((ctx: any) => unknown) | undefined): Primitive {
   return {
-    __livething: 'pluginApi',
+    __livething: 'plugin-api',
     __identity: [PLUGIN_API_KEY, id],
     __requires: {},
     __setup(engine) {
@@ -254,8 +232,8 @@ function assertSupported(id: string, primitive: Primitive): void {
 /**
  * Wrap a scoped server definition and a manifest into a capability you list in
  * `server({ capabilities: [...] })`. The plugin's events, requests, and emits
- * are namespaced under `__<id>::`, and its `api` is reached from any host
- * event handler as `ctx.plugin('<id>')`.
+ * are namespaced under `__<id>::`. Its `api` has no connection in it: host code
+ * reaches it as `ctx.plugin('<id>')`, and admin code as `admin.plugin('<id>')`.
  *
  * The behavior is authored as a real, independently-bootable scoped server definition with
  * `server({ scope: 'plugin' })`, so a plugin is tested like a tiny app.
@@ -278,7 +256,7 @@ function assertSupported(id: string, primitive: Primitive): void {
  * // The api is authored on the scoped assemble, next to its handlers.
  * const presence = h.assemble({
  *   handlers: [heartbeat],
- *   api: (ctx) => ({ ping() { ctx.send('user-online', { id: ctx.connection.id }); } }),
+ *   api: (ctx) => ({ announce(id: string) { ctx.broadcast('user-online', { id }); } }),
  * });
  *
  * export const Presence = plugin('acme:presence', { definition: presence });
@@ -319,7 +297,7 @@ export function plugin<
   const primitives: Primitive[] = [...namespaced, pluginSurfacePrimitive()];
   const apiFactory = (manifest.definition as { __apiFactory?: (ctx: unknown) => unknown })
     .__apiFactory;
-  if (apiFactory) primitives.push(pluginApiPrimitive(id, apiFactory));
+  primitives.push(pluginApiPrimitive(id, apiFactory));
 
   const cap = capability<{ plugins: { [K in TId]: PluginContractSlice<TContract, TApi> } }, never>(
     primitives,

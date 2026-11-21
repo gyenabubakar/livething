@@ -24,6 +24,8 @@ const ADMIN_CONTEXT_MEMBER_NAMES = [
   'cancelScheduled',
   'log',
   'platform',
+  'messageLimits',
+  'plugin',
 ] as const satisfies readonly ConnectionlessContextMember[];
 
 /** A member name of the connectionless context the admin surface is built on. */

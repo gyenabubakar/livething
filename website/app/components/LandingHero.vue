@@ -43,7 +43,7 @@ async function copy() {
       <div class="flex flex-wrap items-center gap-3">
         <UButton
           ref="heroCta"
-          to="/start/installation"
+          to="/core/start/installation"
           size="lg"
           class="glow-button font-medium"
           trailing-icon="i-ph-arrow-right-duotone"

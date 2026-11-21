@@ -6,6 +6,7 @@ import { channelDynamicDefinition } from '@livething/tests-e2e-handlers/channel-
 import { channelFamilyIsolationDefinition } from '@livething/tests-e2e-handlers/channel-family-isolation';
 import { channelKeyCollisionDefinition } from '@livething/tests-e2e-handlers/channel-key-collision';
 import { channelStaticDefinition } from '@livething/tests-e2e-handlers/channel-static';
+import { collaborationDefinition } from '@livething/tests-e2e-handlers/collaboration';
 import { ctxChannelsDefinition } from '@livething/tests-e2e-handlers/ctx-channels';
 import { ctxKvDefinition } from '@livething/tests-e2e-handlers/ctx-kv';
 import { ctxLocalsDefinition } from '@livething/tests-e2e-handlers/ctx-locals';
@@ -115,6 +116,7 @@ export const FEATURE_DEFINITIONS: Record<string, ServerDefinition> = {
   '/ws/inbox-retention': inboxRetentionDefinition,
   '/ws/receipts': receiptsDefinition,
   '/ws/awareness': awarenessDefinition,
+  '/ws/collaboration': collaborationDefinition,
   '/ws/inbox-gap': inboxGapDefinition,
   '/ws/inbox-handle': inboxHandleDefinition,
   '/ws/last-seen': lastSeenDefinition,

@@ -35,7 +35,9 @@ export function createTimers(sql: SQLProvider, logger?: Logger): NodeTimers {
       `CREATE TABLE IF NOT EXISTS ${ALARM_TABLE} (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         time_ms INTEGER NOT NULL,
-        generation INTEGER NOT NULL DEFAULT 0
+        generation INTEGER NOT NULL DEFAULT 0,
+        -- Reserved JSON blob: lets us add fields later without a migration.
+        metadata TEXT NOT NULL DEFAULT '{}'
       )`,
     );
 

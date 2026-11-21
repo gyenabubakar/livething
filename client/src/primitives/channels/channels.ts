@@ -149,7 +149,7 @@ export function channels(): ChannelsPrimitive {
 
         if (
           metadata?.channel?.readReceipts === true &&
-          !helpers.hasPrimitive('read-receipts') &&
+          !helpers.hasPrimitive('readReceipts') &&
           !warnedReadReceiptsMissing.has(key)
         ) {
           warnedReadReceiptsMissing.add(key);
@@ -487,8 +487,12 @@ export function channels(): ChannelsPrimitive {
               state.deferredSubscribe = null;
 
               // A channel that never became active won't be re-subscribed on
-              // reconnect, so release its idle-prevention hold here or it leaks.
-              if (!state.active) state.releaseLazy();
+              // reconnect, so release its idle-prevention hold here or it leaks, and
+              // stop showing it as subscribing.
+              if (!state.active) {
+                state.releaseLazy();
+                state.markSubscribeDropped();
+              }
             }
 
             if (intentional) {

@@ -80,7 +80,9 @@ export function ensureAlarmCoordinatorSchema(core: Pick<EngineCore, 'storage'>):
   core.storage.sql.exec(`
     CREATE TABLE IF NOT EXISTS ${ALARM_STATE_TABLE} (
       id       INTEGER PRIMARY KEY CHECK (id = 1),
-      retry_at INTEGER NOT NULL
+      retry_at INTEGER NOT NULL,
+      -- Reserved JSON blob: lets us add fields later without a migration.
+      metadata TEXT NOT NULL DEFAULT '{}'
     )
   `);
 }

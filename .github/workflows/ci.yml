@@ -101,8 +101,8 @@ jobs:
         run: pnpm test
 
   # The repo's tools need Node 24, but the Node adapter supports Node 22. This job
-  # installs and builds on Node 24, then runs the server and Node adapter tests on
-  # Node 22, with the native SQLite driver rebuilt for it.
+  # installs and builds on Node 24, then runs the server, Node adapter and Collaboration
+  # plugin tests on Node 22, with the native SQLite driver rebuilt for it.
   node-22:
     name: Unit tests on Node 22
     needs: gate
@@ -144,6 +144,10 @@ jobs:
 
       - name: Node adapter unit tests
         working-directory: server-adapters/node
+        run: pnpm test
+
+      - name: Collaboration plugin unit tests
+        working-directory: plugins/collaboration
         run: pnpm test
 
   # Architecture guards, kept separate from the fast checks so a tree-shaking

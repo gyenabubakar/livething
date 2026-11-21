@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { LiveThingConfigError } from '@livething/core';
 import { rescheduleAlarm as rescheduleEngineAlarm } from '~/_engine/alarm.ts';
 import { currentConnectionId } from '~/_engine/call-context.ts';
 import { createConnectionlessContext } from '~/_engine/contexts/connectionless.ts';
@@ -15,6 +16,7 @@ import { createPresenceBatcher } from '~/channel/presence-batch.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { binaryBytesRoom } from '~/incoming/incoming.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
+import { scopePluginContext } from '~/plugin-scope.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
@@ -136,7 +138,46 @@ export function connectionlessContext(
     usersByKey: core.usersByKey,
     ...commonDeps(core),
     purgeUser: (userId, options) => EnginePurgeUser.purgeUser(core, userId, options),
+    plugin: (id) => pluginApi(core, id),
   });
+}
+
+/** A plugin's API, built on first use against its own scoped connectionless context. */
+function pluginApi(core: EngineCore, id: string): unknown {
+  if (core.pluginApis.has(id)) return core.pluginApis.get(id);
+
+  if (!core.pluginApiFactories.has(id)) {
+    throw new Error(
+      `[livething] plugin('${id}') — no plugin with id '${id}' is registered. ` +
+        'List the plugin in server({ capabilities: [...] }).',
+    );
+  }
+
+  const factory = core.pluginApiFactories.get(id);
+  if (!factory) {
+    throw new LiveThingConfigError(
+      `plugin('${id}') has no api. Pass an api to the plugin's assemble({ handlers, api }).`,
+    );
+  }
+
+  const building = core.pluginApisBuilding;
+  if (building.includes(id)) {
+    const cycle = [...building.slice(building.indexOf(id)), id].join(' → ');
+    throw new LiveThingConfigError(
+      `plugin('${id}') is used while its own api is being built: ${cycle}. ` +
+        "Call another plugin's api inside your api's methods, not in the api factory itself.",
+    );
+  }
+
+  building.push(id);
+  try {
+    const api = factory(scopePluginContext(id, connectionlessContext(core)));
+    core.pluginApis.set(id, api);
+
+    return api;
+  } finally {
+    building.pop();
+  }
 }
 
 /** Factory form of {@link connectionlessContext}, handed to the scheduled service. */
@@ -149,6 +190,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
   return {
     logger: core.logger,
     platform: core.platform,
+    messageLimits: core.messageLimits,
     getStorage: () => core.storage,
     isUserPurging: (userId) => core.isUserPurging(userId),
     getStorageView: () =>
@@ -689,6 +731,7 @@ export function engineAccessDeps(core: EngineCore): EngineAccessDeps {
   const buildCtx = buildConnectionContext(core);
   return {
     buildConnectionlessContext: () => connectionlessContext(core),
+    pluginApi: (id) => pluginApi(core, id),
     ensureScheduledRuntime: () =>
       core.scheduledService?.ensureRuntime(core, connectionlessContextFactory(core)),
     scheduleTask: (opts) =>

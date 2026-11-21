@@ -45,7 +45,7 @@ const DEFAULT_QUERY_TIMEOUT_MS = 10_000;
 export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPrimitive {
   const defaultTimeout = options.timeout ?? DEFAULT_QUERY_TIMEOUT_MS;
   return {
-    _tag: 'read-receipts',
+    _tag: 'readReceipts',
     optionalAfter: ['channels', 'inbox'],
     setup(helpers) {
       // Highest non-stream seq received per channel — the `markAsRead()` default.
@@ -95,7 +95,7 @@ export function readReceipts(options: ReadReceiptsOptions = {}): ReadReceiptsPri
       }
 
       return {
-        id: 'read-receipts',
+        id: 'readReceipts',
         onIncoming(message) {
           const channel = message.metadata?.channel?.name;
           if (channel === undefined) return message;
@@ -209,4 +209,4 @@ function markersKey(markers: ScopeMarkers): string {
   return channelKey(markers.family, markers.name ?? '');
 }
 
-readReceipts.tag = 'read-receipts' as const;
+readReceipts.tag = 'readReceipts' as const;

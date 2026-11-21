@@ -3,6 +3,7 @@ packages:
   - core
   - server
   - server-adapters/*
+  - plugins/*
   - tests-e2e/*
   - website
 

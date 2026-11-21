@@ -45,6 +45,8 @@ const CREATE_UPLOADS_TABLE_SQL = `
     status         TEXT NOT NULL DEFAULT 'active',
     reply          TEXT,
     updated_at     INTEGER NOT NULL,
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
+    metadata       TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (user_id, upload_id)
   )
 `;

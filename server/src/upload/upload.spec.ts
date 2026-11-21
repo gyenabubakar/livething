@@ -1675,6 +1675,7 @@ describe('base.binary.upload: what the docs promise', () => {
         status: 'active',
         reply: null,
         updated_at: expect.any(Number),
+        metadata: '{}',
       },
     ]);
 

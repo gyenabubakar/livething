@@ -14,7 +14,8 @@ export default defineNuxtPlugin(() => {
         if (!title) return 'LiveThing'
         // The landing page's title already names LiveThing.
         if (route.path === '/') return title
-        const section = SECTIONS[route.path.split('/')[1] ?? '']
+        const [, track, name] = route.path.split('/')
+        const section = track === 'plugins' ? 'Plugins' : track === 'core' ? SECTIONS[name ?? ''] : undefined
         return section ? `${title} - ${section} - LiveThing` : `${title} - LiveThing`
       },
     },

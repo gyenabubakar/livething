@@ -51,8 +51,9 @@ function makeFakeStorage(opts?: { initialized?: boolean }) {
     storage.sql.exec(
       `
         CREATE TABLE IF NOT EXISTS __livething_meta (
-          key   TEXT PRIMARY KEY,
-          value TEXT NOT NULL
+          key      TEXT PRIMARY KEY,
+          value    TEXT NOT NULL,
+          metadata TEXT NOT NULL DEFAULT '{}'
         );
         INSERT OR REPLACE INTO __livething_meta (key, value) VALUES ('initialized', '1')
       `,

@@ -26,6 +26,7 @@
     "@livething/client": "workspace:*",
     "@cloudflare/vitest-plugin": "^1.0.0",
     "typescript": "^6.0.2",
-    "wrangler": "^4.14.0"
+    "wrangler": "^4.14.0",
+    "yjs": "^13.6.33"
   }
 }

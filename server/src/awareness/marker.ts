@@ -1,7 +1,6 @@
 import { LiveThingConfigError } from '@livething/core';
 import { ENGINE_CHANNEL_META } from '~/_engine/contexts/contexts.ts';
 import { createAwarenessRuntime } from '~/awareness/runtime.ts';
-import { parsePluginWireName } from '~/plugin-scope.ts';
 import type { EngineChannelMeta } from '~/_engine/contexts/types.ts';
 import type { AwarenessOptions } from '~/awareness/runtime.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -26,12 +25,12 @@ const MAX_PIECE_BYTES = 256 * 1024;
  *
  * @internal
  */
-export function awarenessMarker(options: AwarenessOptions): AwarenessMarkerPrimitive {
+export function awarenessMarker(awarenessOptions: AwarenessOptions): AwarenessMarkerPrimitive {
   return {
     __livething: 'awareness-marker',
     __identity: [AWARENESS_MARKER_KEY],
     __requires: {},
-    options,
+    options: awarenessOptions,
     __validate(view) {
       // Awareness sends each member's `meta` to the channel, and `presence: false` is how an
       // app keeps `meta` from members.
@@ -41,16 +40,13 @@ export function awarenessMarker(options: AwarenessOptions): AwarenessMarkerPrimi
         );
       }
     },
-    __setup(engine) {
+    // Reads `this.options`, not the closure: a plugin channel hands in a copy with its check scoped.
+    __setup(this: AwarenessMarkerPrimitive, engine) {
+      const { options } = this;
       const { channelKey } = engine.getScopeInfo();
       if (!channelKey) return;
 
       const context = `channel '${channelKey}'`;
-      if (parsePluginWireName(channelKey)) {
-        throw new LiveThingConfigError(
-          `${context}: awareness() is for app channels. A plugin channel cannot use it.`,
-        );
-      }
 
       const { receiveBytes, sendBytes, postBytes } = engine.getMessageLimits();
       const needed = options.maxBytes + HEADER_ROOM;

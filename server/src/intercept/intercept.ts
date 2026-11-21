@@ -216,14 +216,14 @@ export type OutgoingHandler<TCtx = any> = (
 ) => void | Promise<void>;
 
 /** Primitive type for an outgoing hook. */
-export interface OutgoingHookPrimitive<TCtx = any> extends Primitive<'outgoingHook'> {
+export interface OutgoingHookPrimitive<TCtx = any> extends Primitive<'outgoing-hook'> {
   readonly handler: OutgoingHandler<TCtx>;
   /** Set by plugin namespacing when a plugin contributes this hook; absent ⇒ app-owned. @internal */
   readonly __owner?: FrameOwner;
 }
 
 /** Unique symbol. One outgoing hook per scope, mirroring `intercept`. */
-const OUTGOING_HOOK_KEY = Symbol('outgoingHook');
+const OUTGOING_HOOK_KEY = Symbol('outgoing-hook');
 
 /**
  * Creates an outgoing-hook primitive that watches every server→client send
@@ -234,8 +234,8 @@ const OUTGOING_HOOK_KEY = Symbol('outgoingHook');
  */
 export function outgoingHook(handler: OutgoingHandler<any>): OutgoingHookPrimitive<any> {
   return {
-    __livething: 'outgoingHook',
-    __identity: [OUTGOING_HOOK_KEY, 'outgoingHook'],
+    __livething: 'outgoing-hook',
+    __identity: [OUTGOING_HOOK_KEY, 'outgoing-hook'],
     __requires: {},
     handler,
     __setup(engine) {

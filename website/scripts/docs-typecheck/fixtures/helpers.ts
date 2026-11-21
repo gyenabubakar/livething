@@ -17,6 +17,7 @@ export declare function loadProfile(
 ): Promise<{ id: string; name: string; status: 'active' | 'away' | 'busy' }>;
 export declare function searchMessages(query: string, signal?: AbortSignal): AsyncIterable<Message>;
 export declare function loadMessages(roomId: string, before?: number): Promise<Message[]>;
+export declare function saveRoomTopic(roomId: string, topic: string): Promise<void>;
 export declare function newMessageId(): string;
 export declare function addToRoster(memberId: string, meta: unknown): void;
 export declare function removeFromRoster(memberId: string): void;
@@ -196,6 +197,17 @@ export declare function isBanned(userId: string): boolean;
 export declare function saveMessages(messages: Message[]): void;
 export declare function isUserBanned(userId: string): Promise<boolean>;
 export declare function isRoomMember(userId: string, roomId: string): Promise<boolean>;
+/** Puts a room's task titles in Huddle's search index, so message search finds tasks too. */
+export declare function indexTaskTitles(roomId: string, titles: readonly string[]): Promise<void>;
+/**
+ * A room's board as Huddle's old `tasks` table holds it, from before boards were shared docs,
+ * or `null` for a room that never had one.
+ */
+export declare function readOldBoard(roomId: string): Promise<{
+  title: string;
+  columns: { id: string; name: string }[];
+  tasks: { id: string; column: string; title: string; done: boolean; assignee: string | null }[];
+} | null>;
 export declare function isSendingTooManyFrames(userId: string): boolean;
 export declare function showMissingProfile(userId: string): void;
 export declare function retryLoadingProfile(userId: string): void;

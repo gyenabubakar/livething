@@ -32,7 +32,7 @@ function buildScheduleSurface(engine: EngineAccess): Record<string, unknown> {
  */
 export function scheduleSurfacePrimitive(): Primitive {
   return {
-    __livething: 'scheduledSurface',
+    __livething: 'scheduled-surface',
     __identity: [SCHEDULE_SURFACE_KEY],
     __requires: {},
     __setup(engine) {

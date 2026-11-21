@@ -105,8 +105,9 @@ export interface ServerContract {
  * @template TPrimitives - The frozen tuple of all assembled primitives.
  * @template TContract - The client contract carried along with the built server.
  * @template TScopedCtx - The `ctx` type a scoped server definition's own handlers receive.
- * @template TApi - The return type of the server definition's `api` factory (the per-connection
- *   surface a plugin exposes via `ctx.plugin(id)`). `unknown` when no `api` is given.
+ * @template TApi - The return type of the server definition's `api` factory: the app's admin
+ *   methods, or the surface a plugin exposes via `ctx.plugin(id)` and `admin.plugin(id)`.
+ *   `unknown` when no `api` is given.
  * @template TConnectionlessCtx - The `ctx` type the definition's `api` factory, scheduled task
  *   bodies and `onShutdown` hooks receive. Adapters read it to type the admin surface.
  */
@@ -177,13 +178,34 @@ export type ApiOf<TDefinition> =
 /**
  * The full admin surface of a server definition: its connectionless `ctx`
  * (typed against the definition's own emits, channels and scheduled tasks)
- * merged with the app's own `api` methods. An in-process adapter's
- * `admin()` resolves to this type.
+ * merged with the app's own `api` methods. A built-in wins over an app member of
+ * the same name, as it does at runtime. An in-process adapter's `admin()` resolves
+ * to this type.
  */
 export type AdminOf<TDefinition> =
   TDefinition extends ServerDefinition<any, any, any, infer TApi, infer TCtx>
-    ? (unknown extends TCtx ? ConnectionlessContext<Record<string, unknown>, unknown> : TCtx) & TApi
+    ? WithBuiltIns<
+        unknown extends TCtx ? ConnectionlessContext<Record<string, unknown>, unknown> : TCtx,
+        TApi
+      >
     : ConnectionlessContext<Record<string, unknown>, unknown>;
+
+/**
+ * The admin context plus the app's `api`, without the app members a built-in shadows.
+ * `plugin` is always a built-in at runtime, even when the type has none because no
+ * plugin is listed.
+ */
+type WithBuiltIns<TCtx, TApi> = TCtx &
+  (unknown extends TApi
+    ? {}
+    : // Every built-in shadows the app's member at runtime, even one `TCtx` lacks because its
+      // capability is not listed (`channels`, `schedule`).
+      Omit<TApi, NamedKeys<ConnectionlessContext<Record<string, unknown>, unknown>> | 'plugin'>);
+
+/** The named keys of `T`, without those of an index signature. */
+type NamedKeys<T> = keyof {
+  [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K];
+};
 
 /**
  * The per-connection metadata type a server definition's `authenticate(...)` returns, read off

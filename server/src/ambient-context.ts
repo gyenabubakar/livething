@@ -6,17 +6,17 @@ import type { CallKind } from '~/_engine/call-context.ts';
 import type { InitContext } from '~/context.ts';
 
 /** What `server(...)` returns: the app's base, or a plugin's own `server({ scope: 'plugin' })` base. */
-type BaseRef = CoreBase<any, any, any, any>;
+type BaseRef = CoreBase<any, any, any>;
 
 /** What `base.channel(...)` returns, as far as the accessors need it. */
 type ChannelRef = { readonly __key: string; readonly __baseId: symbol | undefined };
 
 type ConnectionCtxOf<TBase> =
-  TBase extends CoreBase<infer S, infer M, infer C, any> ? AppCtx<S, M, C> : never;
+  TBase extends CoreBase<infer S, infer M, infer C> ? AppCtx<S, M, C> : never;
 
 /** The `ctx` a scheduled task body and an `onShutdown` hook of this base receive. */
 type ConnectionlessCtxOf<TBase> =
-  TBase extends CoreBase<infer S, infer M, infer C, any> ? ConnectionlessCtx<S, M, C> : never;
+  TBase extends CoreBase<infer S, infer M, infer C> ? ConnectionlessCtx<S, M, C> : never;
 
 /** The `ctx` a channel's own handlers receive, read off the `run` parameter of its `on` method. */
 type ChannelCtxOf<TChannel> = TChannel extends { on: (...args: infer A) => any }

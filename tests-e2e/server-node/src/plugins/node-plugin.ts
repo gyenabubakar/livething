@@ -341,9 +341,6 @@ export const NodePlugin = plugin('e2e:drizzle', {
               .one()?.value ?? 0,
           );
         },
-        getCurrentConnectionId() {
-          return ctx.connection.id ?? null;
-        },
       };
     },
   }),

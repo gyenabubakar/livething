@@ -517,7 +517,7 @@ describe('plugin namespacing — authenticate seeds tags into the plugin namespa
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:rooms', { definition: h.assemble({ handlers: [go] }) })();
-    const authPrim = __primitives.find((p: any) => p.__livething === 'onAuthenticate') as any;
+    const authPrim = __primitives.find((p: any) => p.__livething === 'on-authenticate') as any;
 
     const result = await authPrim.handler(new Request('https://x'), {});
     expect(result.tags).toEqual([
@@ -533,7 +533,7 @@ describe('plugin namespacing — authenticate seeds tags into the plugin namespa
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:rooms', { definition: h.assemble({ handlers: [go] }) })();
-    const authPrim = __primitives.find((p: any) => p.__livething === 'onAuthenticate') as any;
+    const authPrim = __primitives.find((p: any) => p.__livething === 'on-authenticate') as any;
 
     const result = await authPrim.handler(new Request('https://x'), {});
     expect(result.tags).toEqual([
@@ -653,7 +653,7 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
     });
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:store', { definition: h.assemble({ handlers: [go] }) })();
-    const hook = __primitives.find((p: any) => p.__livething === 'outgoingHook') as any;
+    const hook = __primitives.find((p: any) => p.__livething === 'outgoing-hook') as any;
 
     expect(hook.__owner).toEqual({ kind: 'plugin', id: 'acme:store' });
 
@@ -675,7 +675,7 @@ describe('plugin namespacing — hook ctx is scoped (Major 4)', () => {
     const go = h.on('go', { input: v.object({}), run() {} });
     const { __primitives } = plugin('acme:obs', { definition: h.assemble({ handlers: [go] }) })();
 
-    const hook = __primitives.find((p: any) => p.__livething === 'outgoingHook') as any;
+    const hook = __primitives.find((p: any) => p.__livething === 'outgoing-hook') as any;
     let registered: any;
     hook.__setup({ onOutgoing: (fn: any) => (registered = fn) });
     expect(() => registered(undefined, { event: 'x', payload: {} })).not.toThrow();

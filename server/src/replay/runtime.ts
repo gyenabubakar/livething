@@ -77,6 +77,8 @@ const CREATE_REPLAY_RECIPIENT_TABLE_SQL = `
     channel TEXT,
     channelFamily TEXT,
     createdAt INTEGER NOT NULL,
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
+    metadata TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (rowKey, resumeToken)
   )
 `;

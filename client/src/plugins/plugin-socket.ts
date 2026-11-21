@@ -2,6 +2,7 @@ import type { LiveThingError } from '@livething/core';
 import type { Message } from '~/internal/runtime.ts';
 import type { ReadableStore } from '~/internal/store.ts';
 import type { Messaging } from '~/messaging.ts';
+import type { AwarenessPrimitive } from '~/primitives/awareness/types.ts';
 import type { BinaryMessaging, BinaryPrimitive } from '~/primitives/binary/types.ts';
 import type { AugmentedChannelMethod } from '~/primitives/channels/types.ts';
 import type { ClientRequestsPrimitive } from '~/primitives/client-requests/types.ts';
@@ -25,15 +26,17 @@ import type {
 
 /**
  * The channel-scoped primitives every plugin channel handle is typed with,
- * whatever the plugin declares. `inbox()` and `readReceipts()` gate their own
- * surface on the channel's contract (`inbox: true` / `readReceipts: true`), so
- * listing them here doesn't add methods to a channel that doesn't opt in — it
- * only makes the surface reachable when the channel does. A plugin that
- * declares such a flag is still responsible for listing the matching primitive
- * in its `dependencies`, the same way it lists `channels` for `channel` itself.
+ * whatever the plugin declares. `awareness()`, `inbox()` and `readReceipts()` gate
+ * their own surface on the channel's contract (an `awareness` entry, `inbox: true`,
+ * `readReceipts: true`), so listing them here doesn't add members to a channel
+ * that doesn't opt in — it only makes the surface reachable when the channel
+ * does. A plugin whose channel opts in is still responsible for listing the
+ * matching primitive in its `dependencies`, the same way it lists `channels` for
+ * `channel` itself.
  * The same goes for a channel's `.binary` methods.
  */
 type PluginChannelPrimitives = readonly [
+  AwarenessPrimitive,
   InboxPrimitive,
   ReadReceiptsPrimitive,
   BinaryPrimitive,

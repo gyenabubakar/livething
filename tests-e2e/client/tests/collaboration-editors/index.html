@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>LiveThing client conformance — collaboration editors</title>
+    <!-- The CSS ProseMirror needs (from prosemirror-view/style/prosemirror.css): without it, typing can be lost. -->
+    <style>
+      .ProseMirror {
+        position: relative;
+        word-wrap: break-word;
+        white-space: pre-wrap;
+        white-space: break-spaces;
+        font-variant-ligatures: none;
+        font-feature-settings: 'liga' 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./editors.ts"></script>
+  </body>
+</html>
