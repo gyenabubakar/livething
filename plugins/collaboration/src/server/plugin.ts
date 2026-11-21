@@ -276,6 +276,17 @@ class Parts {
       throw InvalidMessage({ reason: 'the parts of an update came out of order' });
     }
 
+    // Checked before the part is copied or a timer holds it, so a refused part keeps nothing.
+    let held = pending.bytes + bytes.length;
+    for (const [name, each] of rooms) if (name !== room) held += each.bytes;
+
+    if (held > MAX_UPDATE_BYTES) {
+      this.drop(sender);
+      throw InvalidMessage({
+        reason: `the updates a client sends in parts can be at most ${MAX_UPDATE_BYTES} bytes in all`,
+      });
+    }
+
     pending.pieces.push(bytes.slice());
     pending.bytes += bytes.length;
     const replaced = rooms.get(room);
@@ -288,16 +299,6 @@ class Parts {
     }, PART_TIMEOUT_MS);
     // It must not keep a Node server from stopping.
     (pending.timer as { unref?: () => void }).unref?.();
-    let held = 0;
-    for (const each of rooms.values()) held += each.bytes;
-
-    if (held > MAX_UPDATE_BYTES) {
-      this.drop(sender);
-      throw InvalidMessage({
-        reason: `the updates a client sends in parts can be at most ${MAX_UPDATE_BYTES} bytes in all`,
-      });
-    }
-
     this.waiting.set(connection, rooms);
     if (index < count - 1) return null;
 

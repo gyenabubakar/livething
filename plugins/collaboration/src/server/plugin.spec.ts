@@ -390,6 +390,24 @@ describe('collaboration() on the server', () => {
       ]);
     });
 
+    it('keeps nothing of a first part it refuses for being over 32 MiB', async () => {
+      const { engine } = await startServer({ receiveBytes: 64 * 1024 * 1024 });
+      const amara = await member(engine, 'u_amara');
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+      try {
+        const timers = vi.getTimerCount();
+        await amara.update('launch', { n: 1, part: [0, 2] }, new Uint8Array(33 * 1024 * 1024));
+
+        // A timer left behind would hold a copy of the part for 60 seconds.
+        expect(vi.getTimerCount()).toBe(timers);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(amara.errors()).toEqual([expect.objectContaining({ code: 'invalid-message' })]);
+    });
+
     it('holds at most 32 MiB of waiting parts for one connection, across rooms', async () => {
       const { engine } = await startServer();
       const amara = await member(engine, 'u_amara');
