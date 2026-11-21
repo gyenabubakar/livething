@@ -144,7 +144,10 @@ export interface WireAwareness {
   readonly user: unknown;
   /** This copy's Yjs client ID, so editors can match cursors to members. */
   readonly yjs: number;
-  /** The fields a Yjs editor binding keeps in y-protocols awareness, such as a cursor. */
+  /**
+   * The fields a Yjs editor binding keeps in y-protocols awareness, such as a cursor, and
+   * the caret `bindText` shares (`textCaret`).
+   */
   readonly editor: Readonly<Record<string, unknown>> | null;
   /** The locks this member holds, by key. */
   readonly locks: readonly string[];

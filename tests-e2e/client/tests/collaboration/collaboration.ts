@@ -31,6 +31,8 @@ export function setup(): void {
     <button data-testid="close">close</button>
     <input data-testid="title-input" />
     <button data-testid="rename">rename</button>
+    <input data-testid="bound-title" />
+    <button data-testid="bind-title">bind-title</button>
     <button data-testid="add-task">add-task</button>
     <button data-testid="toggle-first">toggle-first</button>
     <button data-testid="move-first-to-end">move-first-to-end</button>
@@ -63,6 +65,7 @@ export function setup(): void {
     <span data-testid="anchor"></span>
     <span data-testid="versions"></span>
     <span data-testid="version-title"></span>
+    <span data-testid="carets"></span>
   `);
 
   const page = new URLSearchParams(location.search);
@@ -215,6 +218,16 @@ export function setup(): void {
   });
   button('server-drop', () => {
     socket.send('server-drop', {});
+  });
+  button('bind-title', () => {
+    board.bindText(el('bound-title') as HTMLInputElement, (p) => p.title);
+    board
+      .carets((p) => p.title)
+      .subscribe((carets) => {
+        el('carets').textContent = carets
+          .map((caret) => `${String(caret.member.meta.username)}:${caret.from}-${caret.to}`)
+          .join(',');
+      });
   });
 
   async function showVersions(): Promise<void> {

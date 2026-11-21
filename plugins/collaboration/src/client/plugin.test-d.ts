@@ -72,6 +72,16 @@ describe('the client plugin types', () => {
     board.bindText(input, (p) => p.tasks[0]?.done);
   });
 
+  it('types the carets of a text field with each member awareness state', () => {
+    const board = collab.doc('task-board', 'launch');
+    const caret = board.carets((p) => p.title).get()[0]!;
+
+    expectTypeOf(caret.from).toEqualTypeOf<number>();
+    expectTypeOf(caret.member.state).toEqualTypeOf<{ viewingTaskId: string | null } | null>();
+    // @ts-expect-error rich text has its editor's own cursors
+    board.carets((p) => p.tasks[0]?.notes);
+  });
+
   it('types a version by its doc type', async () => {
     const notes = collab.doc('meeting-notes', 'standup');
 

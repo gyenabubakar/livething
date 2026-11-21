@@ -158,6 +158,11 @@ function isDeleted(type: Y.AbstractType<any>): boolean {
 }
 
 function absolute(ydoc: Y.Doc, json: PositionJson) {
+  // Yjs makes a field for a name it does not have. A position from another client must
+  // not add fields to this doc.
+  const { tname } = json;
+  if (tname !== undefined && tname !== null && !ydoc.share.has(String(tname))) return null;
+
   const position = Y.createAbsolutePositionFromRelativePosition(
     Y.createRelativePositionFromJSON(json),
     ydoc,
@@ -179,6 +184,24 @@ function offsetOf(type: Y.AbstractType<any>, index: number) {
   const run = richTextLayout(fragment as Y.XmlFragment).runs.find((r) => r.node === type);
 
   return run ? { field: fragment, offset: run.start + index } : null;
+}
+
+/** A place between two characters of a plain text, as JSON: it follows them as people type. */
+export function textPosition(type: Y.Text, index: number, assoc: number): PositionJson {
+  return Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(type, index, assoc));
+}
+
+/** Where a {@link textPosition} from another member is now in `type`, or `null`. */
+export function textIndex(ydoc: Y.Doc, json: unknown, type: Y.Text): number | null {
+  if (typeof json !== 'object' || json === null) return null;
+
+  try {
+    const position = absolute(ydoc, json as PositionJson);
+    return position?.type === type ? position.index : null;
+  } catch {
+    // Sent by another client, so it may be anything.
+    return null;
+  }
 }
 
 /** Where a text anchor's words are now, or `null` once they are all deleted. */

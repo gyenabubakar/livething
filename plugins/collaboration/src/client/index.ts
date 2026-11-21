@@ -9,7 +9,7 @@ export type {
   Refusal,
   UpdateNotSentDetail,
 } from '~/client/doc-handle.ts';
-export type { DocAwareness, DocMember, LockHolder } from '~/client/awareness.ts';
+export type { DocAwareness, DocMember, LockHolder, TextCaret } from '~/client/awareness.ts';
 export type { DocAnchors, DocHistory } from '~/client/doc-state.ts';
 export type { TextInput } from '~/client/bind-text.ts';
 export type { IndexedDbStorageOptions } from '~/client/indexeddb.ts';

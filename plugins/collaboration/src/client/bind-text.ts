@@ -8,15 +8,30 @@ export interface TextInput {
   readonly selectionStart: number | null;
   readonly selectionEnd: number | null;
   setSelectionRange(start: number, end: number): void;
+  /** Whether the input has focus when it is bound. */
+  readonly ownerDocument?: { readonly activeElement: unknown } | null;
   addEventListener(type: TextInputEvent, listener: () => void): void;
   removeEventListener(type: TextInputEvent, listener: () => void): void;
 }
 
-type TextInputEvent = 'input' | 'compositionstart' | 'compositionend';
+type TextInputEvent =
+  | 'input'
+  | 'compositionstart'
+  | 'compositionend'
+  | (typeof CARET_EVENTS)[number];
 
-/** The doc a binding edits, through `change()`. */
+/**
+ * The events after which the caret may have moved. `selectionchange` on an input is new
+ * (Baseline 2024), so key and pointer events cover older browsers. A caret that did not
+ * move sends nothing.
+ */
+const CARET_EVENTS = ['focus', 'blur', 'selectionchange', 'select', 'keyup', 'pointerup'] as const;
+
+/** The doc a binding edits, through `change()`, and where it shares the caret. */
 interface EditableDoc {
   change(mutate: () => void): unknown;
+  /** Share this member's caret in the text, or stop sharing it with `null`. */
+  shareCaret?(range: { start: number; end: number } | null): void;
 }
 
 type Delta = readonly { insert?: unknown; retain?: number; delete?: number }[];
@@ -56,10 +71,15 @@ function moveIndex(index: number, delta: Delta, rangeEnd = false): number {
 /**
  * Keep `input` and `ytext` in step. Typing goes in as a `change()` of the doc (one undo step
  * each), and an edit from someone else, or an undo, updates the input with its cursor kept
- * on the same character.
+ * on the same character. While the input has focus, `doc.shareCaret` gets its caret.
  */
 export function bindText(input: TextInput, ytext: Y.Text, doc: EditableDoc): () => void {
+  function shareCaret(range: { start: number; end: number } | null) {
+    doc.shareCaret?.(range);
+  }
+
   input.value = ytext.toString();
+  let focused = input.ownerDocument?.activeElement === input;
   /**
    * While an IME composes (Japanese, Chinese, Korean...), setting `input.value` would cancel
    * it. So the input is left alone: what it showed when the composition began, and the
@@ -91,6 +111,7 @@ export function bindText(input: TextInput, ytext: Y.Text, doc: EditableDoc): () 
     }
 
     edit(() => setText(ytext, text));
+    sendCaret();
   }
 
   function onCompositionStart() {
@@ -134,7 +155,10 @@ export function bindText(input: TextInput, ytext: Y.Text, doc: EditableDoc): () 
 
     // With no edit from others meanwhile, the input already shows the doc, cursor and all.
     const text = ytext.toString();
-    if (deltas.length === 0 && input.value === text) return;
+    if (deltas.length === 0 && input.value === text) {
+      sendCaret();
+      return;
+    }
 
     // Nothing composed: keep the cursor on its character. Else put it after the new text.
     // The change above already showed the text, with the cursor moved by its own edit only,
@@ -145,7 +169,40 @@ export function bindText(input: TextInput, ytext: Y.Text, doc: EditableDoc): () 
         : from + inserted.length;
     if (input.value !== text) input.value = text;
     input.setSelectionRange(cursor, cursor);
+    sendCaret();
   }
+
+  function onFocus() {
+    focused = true;
+    sendCaret();
+  }
+
+  function onBlur() {
+    focused = false;
+    // Even while an IME composes: with no focus, there is no caret to show.
+    shareCaret(null);
+  }
+
+  /** While IME composes, the input shows text the doc does not have yet: wait for its end. */
+  function sendCaret() {
+    if (composing) return;
+
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    if (!focused || start === null || end === null) {
+      shareCaret(null);
+      return;
+    }
+
+    const length = ytext.length;
+    shareCaret({ start: Math.min(start, length), end: Math.min(end, length) });
+  }
+
+  const caretListeners = new Map<TextInputEvent, () => void>(
+    CARET_EVENTS.map((type) => [type, sendCaret]),
+  );
+  caretListeners.set('focus', onFocus);
+  caretListeners.set('blur', onBlur);
 
   function onChange(event: Y.YTextEvent) {
     const delta = event.delta as Delta;
@@ -161,19 +218,27 @@ export function bindText(input: TextInput, ytext: Y.Text, doc: EditableDoc): () 
     const end = input.selectionEnd;
     input.value = text;
     if (start !== null && end !== null) {
-      input.setSelectionRange(moveIndex(start, delta), moveIndex(end, delta));
+      // Text typed right after a selection stays out of it, as the others see the selection.
+      const from = moveIndex(start, delta);
+      input.setSelectionRange(from, start === end ? from : moveIndex(end, delta, true));
     }
   }
 
   input.addEventListener('input', onInput);
   input.addEventListener('compositionstart', onCompositionStart);
   input.addEventListener('compositionend', onCompositionEnd);
+  for (const [type, listener] of caretListeners) input.addEventListener(type, listener);
   ytext.observe(onChange);
+
+  sendCaret();
 
   return () => {
     input.removeEventListener('input', onInput);
     input.removeEventListener('compositionstart', onCompositionStart);
     input.removeEventListener('compositionend', onCompositionEnd);
+    for (const [type, listener] of caretListeners) input.removeEventListener(type, listener);
     ytext.unobserve(onChange);
+
+    shareCaret(null);
   };
 }

@@ -1,4 +1,5 @@
 import { createStore, derive } from '~/client/store.ts';
+import { textIndex, textPosition } from '~/doc/anchors.ts';
 import { Awareness } from 'y-protocols/awareness';
 import type { AwarenessEntry, ChannelAwarenessApi, ChannelStatus } from '@livething/client';
 import type { ReadableStore } from '~/client/store.ts';
@@ -12,6 +13,25 @@ export interface DocMember<S> {
   /** The app's state, or `null` before it sets one. */
   readonly state: S | null;
 }
+
+/**
+ * Another member's caret in a text field: characters `from` to `to`, the same when nothing
+ * is selected. In the input's own units, so `from` and `to` work with `slice()`.
+ */
+export interface TextCaret<S> {
+  readonly member: DocMember<S>;
+  readonly from: number;
+  readonly to: number;
+}
+
+/** The caret `bindText` shares, as relative positions in the editor state. */
+interface WireCaret {
+  readonly start: Readonly<Record<string, unknown>>;
+  readonly end: Readonly<Record<string, unknown>>;
+}
+
+/** The editor state field that holds the caret of a bound input. */
+const CARET_FIELD = 'textCaret';
 
 /** Who holds a lock. */
 export interface LockHolder {
@@ -62,8 +82,8 @@ interface DocAwarenessOptions {
 
 /**
  * The awareness of one open doc, on the doc's LiveThing channel awareness. Each member's
- * state on the wire holds the app's state, the Yjs client ID, an editor's fields (cursors)
- * and its locks. `yjs()` gives a y-protocols `Awareness` that stays in step with it, for
+ * state on the wire holds the app's state, the Yjs client ID, an editor's fields (cursors,
+ * and the caret of a bound input) and its locks. `yjs()` gives a y-protocols `Awareness` that stays in step with it, for
  * editor bindings.
  */
 export function createDocAwareness<S>(options: DocAwarenessOptions) {
@@ -232,6 +252,99 @@ export function createDocAwareness<S>(options: DocAwarenessOptions) {
     return created;
   }
 
+  /** The binding whose caret this member shares now: one input at a time has focus. */
+  let sharedBy: object | null = null;
+
+  /**
+   * Share the caret of the binding `owner` in `text`, or stop sharing it with `null`.
+   * Positions follow the characters, so an edit by someone else changes nothing to send.
+   */
+  function shareCaret(
+    owner: object,
+    text: Y.Text,
+    range: { start: number; end: number } | null,
+  ): void {
+    // Another binding's caret is the one shown: this one has nothing to clear.
+    if (!range && sharedBy !== owner) return;
+
+    let caret: WireCaret | null = null;
+    if (range) {
+      const start = textPosition(text, range.start, 0);
+      caret = { start, end: range.end === range.start ? start : textPosition(text, range.end, -1) };
+    }
+
+    // Compared with what the bridge holds: an editor binding may have reset its state.
+    const editor = yjs();
+    const local = editor.getLocalState();
+    const held: unknown = local?.[CARET_FIELD] ?? null;
+    if (sharedBy === owner && JSON.stringify(held) === JSON.stringify(caret)) return;
+
+    sharedBy = caret ? owner : null;
+    if (local) editor.setLocalStateField(CARET_FIELD, caret);
+    else editor.setLocalState({ [CARET_FIELD]: caret });
+  }
+
+  /** The other members' carets in `text`. `changes` changes with the doc's content. */
+  function carets(
+    text: Y.Text,
+    changes: ReadableStore<unknown>,
+  ): ReadableStore<readonly TextCaret<S>[]> {
+    let input: [unknown, unknown] | null = null;
+    let output: readonly TextCaret<S>[] = [];
+
+    function read(): readonly TextCaret<S>[] {
+      const entries = room.awareness.others.get();
+      const change = changes.get();
+      if (input && input[0] === entries && input[1] === change) return output;
+
+      input = [entries, change];
+      const next: TextCaret<S>[] = [];
+      for (const entry of entries.values()) {
+        const caret = entry.state.editor?.[CARET_FIELD] as Partial<WireCaret> | null | undefined;
+        const from = textIndex(ydoc, caret?.start, text);
+        const to = textIndex(ydoc, caret?.end, text);
+        if (from === null || to === null) continue;
+
+        next.push({ member: member<S>(entry), from, to: Math.max(from, to) });
+      }
+
+      const same =
+        next.length === output.length &&
+        next.every((caret, index) => {
+          const old = output[index]!;
+          return (
+            caret.from === old.from &&
+            caret.to === old.to &&
+            caret.member.connectionId === old.member.connectionId &&
+            caret.member.state === old.member.state &&
+            caret.member.meta === old.member.meta
+          );
+        });
+      if (!same) output = next;
+
+      return output;
+    }
+
+    return {
+      get: read,
+      subscribe(listener) {
+        let previous = read();
+        function check() {
+          const next = read();
+          if (next === previous) return;
+
+          previous = next;
+          listener(next);
+        }
+
+        const stops = [room.awareness.others.subscribe(check), changes.subscribe(check)];
+        return () => {
+          for (const stop of stops) stop();
+        };
+      },
+    };
+  }
+
   return {
     awareness: {
       update(patch) {
@@ -257,6 +370,8 @@ export function createDocAwareness<S>(options: DocAwarenessOptions) {
       });
     },
     yjs,
+    shareCaret,
+    carets,
     /** The member left the doc: it holds no locks now. */
     left(): void {
       dropLocks();

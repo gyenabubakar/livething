@@ -252,4 +252,36 @@ test.describe('collaboration', () => {
     await expect(alice.getByTestId('title')).toHaveText('Kept on the device');
     await expect(bob.getByTestId('title')).toHaveText('Kept on the device');
   });
+
+  test('members see the caret and selection of each other in a bound input', async ({
+    browser,
+  }, testInfo) => {
+    const room = `collab-${testInfo.testId}`;
+    const alice = await openMember(browser, { room, username: 'alice' });
+    const bob = await openMember(browser, { room, username: 'bob' });
+    await rename(alice, 'Launch plan');
+    for (const page of [alice, bob]) {
+      await page.getByTestId('bind-title').click();
+      await expect(page.getByTestId('bound-title')).toHaveValue('Launch plan');
+    }
+
+    const aliceInput = alice.getByTestId('bound-title');
+    await aliceInput.focus();
+    await aliceInput.press('End');
+    for (let i = 0; i < 4; i += 1) await aliceInput.press('Shift+ArrowLeft');
+    await expect(bob.getByTestId('carets')).toHaveText('alice:7-11');
+
+    // Text typed before her selection moves it, with no new caret from her.
+    const bobInput = bob.getByTestId('bound-title');
+    await bobInput.focus();
+    await bobInput.press('Home');
+    await bobInput.pressSequentially('Big ');
+    await expect(alice.getByTestId('bound-title')).toHaveValue('Big Launch plan');
+
+    await expect(bob.getByTestId('carets')).toHaveText('alice:11-15');
+    await expect(alice.getByTestId('carets')).toHaveText('bob:4-4');
+
+    await aliceInput.blur();
+    await expect(bob.getByTestId('carets')).toHaveText('');
+  });
 });

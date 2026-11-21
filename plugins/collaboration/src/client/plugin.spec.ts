@@ -67,8 +67,13 @@ function fakeInput() {
       input.setSelectionRange(cursor, cursor);
       listeners.get('input')?.();
     },
-    fire(type: 'compositionstart' | 'compositionend') {
+    fire(type: 'compositionstart' | 'compositionend' | 'focus' | 'blur') {
       listeners.get(type)?.();
+    },
+    /** Select characters `start` to `end`, as a click or a drag does. */
+    select(start: number, end = start) {
+      input.setSelectionRange(start, end);
+      listeners.get('selectionchange')?.();
     },
   };
 
@@ -1459,6 +1464,165 @@ describe('collaboration() on the client', () => {
       input.fire('compositionend');
 
       expect(amara.state.get().title).toBe('LaunchXY');
+    });
+  });
+
+  describe('carets', () => {
+    /** Amara and Kofi in the launch board, Amara with the title in an input. */
+    async function twoMembers() {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      const kofi = huddleClient(network, 'u_kofi').collab.doc('task-board', 'launch');
+      await amara.open();
+      await kofi.open();
+
+      const input = fakeInput();
+      const unbind = amara.bindText(input, (p) => p.title);
+
+      return { amara, kofi, input, unbind, titleCarets: kofi.carets((p) => p.title) };
+    }
+
+    it('shows a focused input caret and selection to the others, and follows edits before it', async () => {
+      const { amara, kofi, input, titleCarets } = await twoMembers();
+      const amaraId = amara.awareness.self.get()?.connectionId;
+
+      input.fire('focus');
+      input.select(2, 6);
+      await until(() => titleCarets.get().length === 1);
+      expect(titleCarets.get()).toEqual([
+        { member: expect.objectContaining({ connectionId: amaraId }), from: 2, to: 6 },
+      ]);
+
+      kofi.change((d) => {
+        d.title = 'Big Launch';
+      });
+      expect(titleCarets.get()).toMatchObject([{ from: 6, to: 10 }]);
+
+      input.select(10);
+      await until(() => titleCarets.get()[0]?.from === 10);
+      expect(titleCarets.get()).toMatchObject([{ from: 10, to: 10 }]);
+    });
+
+    it('hides the caret on blur and on unbind, and shows none before focus', async () => {
+      const { input, unbind, titleCarets } = await twoMembers();
+
+      input.select(3);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(titleCarets.get()).toEqual([]);
+
+      input.fire('focus');
+      input.select(3);
+      await until(() => titleCarets.get().length === 1);
+      input.fire('blur');
+      await until(() => titleCarets.get().length === 0);
+
+      input.fire('focus');
+      await until(() => titleCarets.get().length === 1);
+      unbind();
+      await until(() => titleCarets.get().length === 0);
+    });
+
+    it('sends nothing again when only someone else edited', async () => {
+      const { amara, kofi, input, titleCarets } = await twoMembers();
+      const sent: unknown[] = [];
+      amara.yjs.awareness.on('change', (_change: unknown, origin: unknown) => {
+        if (origin === 'local') sent.push(origin);
+      });
+
+      input.fire('focus');
+      input.select(6);
+      await until(() => titleCarets.get()[0]?.from === 6);
+      sent.length = 0;
+      kofi.change((d) => {
+        d.title = 'Big Launch';
+      });
+
+      await until(() => input.value === 'Big Launch');
+      input.select(input.selectionStart!);
+
+      expect(input.selectionStart).toBe(10);
+      expect(sent).toEqual([]);
+    });
+
+    it('gives only the carets in the field asked for, and skips one another client made up', async () => {
+      const { amara, kofi, input, titleCarets } = await twoMembers();
+      const firstTask = kofi.carets((p) => p.tasks[0]?.title);
+
+      input.fire('focus');
+      await until(() => titleCarets.get().length === 1);
+      expect(firstTask.get()).toEqual([]);
+
+      kofi.yjs.awareness.setLocalStateField('textCaret', { start: { item: 'x' }, end: 7 });
+      await until(() => amara.yjs.awareness.getStates().get(kofi.yjs.doc.clientID) !== undefined);
+      expect(amara.carets((p) => p.title).get()).toEqual([]);
+    });
+
+    it('adds no field to the doc for a caret that names one the doc does not have', async () => {
+      const { amara, kofi } = await twoMembers();
+      const fields = amara.yjs.doc.share.size;
+
+      const madeUp = { tname: 'made-up-field' };
+      kofi.yjs.awareness.setLocalStateField('textCaret', { start: madeUp, end: madeUp });
+      await until(() => amara.yjs.awareness.getStates().get(kofi.yjs.doc.clientID) !== undefined);
+
+      expect(amara.carets((p) => p.title).get()).toEqual([]);
+      expect(amara.anchor.watch({ kind: 'text', start: madeUp, end: madeUp }).get()).toBeNull();
+      expect(amara.yjs.doc.share.size).toBe(fields);
+    });
+
+    it('keeps a selection end where the others see it when someone types right after it', async () => {
+      const { kofi, input, titleCarets } = await twoMembers();
+      input.fire('focus');
+      input.select(0, 6);
+      await until(() => titleCarets.get()[0]?.to === 6);
+
+      kofi.change((d) => {
+        d.title = 'Launch plan';
+      });
+      await until(() => input.value === 'Launch plan');
+
+      expect([input.selectionStart, input.selectionEnd]).toEqual([0, 6]);
+      expect(titleCarets.get()).toMatchObject([{ from: 0, to: 6 }]);
+    });
+
+    it('keeps the caret of one input when another input of the same field moves or unbinds', async () => {
+      const { amara, input, titleCarets } = await twoMembers();
+      const other = fakeInput();
+      const unbindOther = amara.bindText(other, (p) => p.title);
+
+      input.fire('focus');
+      input.select(2);
+      await until(() => titleCarets.get().length === 1);
+      other.select(1);
+      unbindOther();
+
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      expect(titleCarets.get()).toMatchObject([{ from: 2, to: 2 }]);
+    });
+
+    it('hides the caret on a blur while an IME composes', async () => {
+      const { input, titleCarets } = await twoMembers();
+      input.fire('focus');
+      await until(() => titleCarets.get().length === 1);
+
+      input.fire('compositionstart');
+      input.fire('blur');
+
+      await until(() => titleCarets.get().length === 0);
+    });
+
+    it('sends the caret again after an editor binding cleared the awareness state', async () => {
+      const { amara, input, titleCarets } = await twoMembers();
+      input.fire('focus');
+      input.select(3);
+      await until(() => titleCarets.get().length === 1);
+
+      amara.yjs.awareness.setLocalState({});
+      await until(() => titleCarets.get().length === 0);
+      input.select(3);
+
+      await until(() => titleCarets.get().length === 1);
     });
   });
 

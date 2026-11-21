@@ -8,7 +8,7 @@ import { eachPart, joinBytes } from '~/doc/parts.ts';
 import { checkVersion, restoreFrom } from '~/doc/restore.ts';
 import { MAX_UPDATE_BYTES, OUT_OF_ORDER } from '~/doc/wire.ts';
 import * as Y from 'yjs';
-import type { AwarenessRoom, DocAwareness, LockHolder } from '~/client/awareness.ts';
+import type { AwarenessRoom, DocAwareness, LockHolder, TextCaret } from '~/client/awareness.ts';
 import type { TextInput } from '~/client/bind-text.ts';
 import type { DocState } from '~/client/doc-state.ts';
 import type { ReadableStore } from '~/client/store.ts';
@@ -214,7 +214,8 @@ export interface DocHandle<D extends DocDef> extends Omit<DocState<D>, 'yjs'> {
   /**
    * Keep an `<input>` or `<textarea>` and a `text()` field in step. Typing becomes changes,
    * and when someone else edits the text, the input updates and the cursor stays on the
-   * same character. Returns a function that unbinds it.
+   * same character. While the input has focus, the other members see its caret in
+   * `carets()`. Returns a function that unbinds it.
    *
    * @example
    * ```ts
@@ -222,6 +223,16 @@ export interface DocHandle<D extends DocDef> extends Omit<DocState<D>, 'yjs'> {
    * ```
    */
   bindText(input: TextInput, pick: Picker<D, YRef<Y.Text>>): () => void;
+  /**
+   * The other members' carets in a `text()` field, from their `bindText()` inputs. Each one
+   * follows its characters as people type.
+   *
+   * @example
+   * ```ts
+   * board.carets((p) => p.tasks[0]?.title).subscribe(drawCarets)
+   * ```
+   */
+  carets(pick: Picker<D, YRef<Y.Text>>): ReadableStore<readonly TextCaret<AwarenessState<D>>[]>;
   /**
    * The raw Yjs objects, for editor bindings: the `Y.Doc`, the typed Yjs type at a path
    * (`at()`), and a y-protocols `Awareness` that stays in step with LiveThing awareness, for
@@ -824,7 +835,17 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     unlock: aware.unlock,
     locks: aware.locks,
     bindText(input, pick) {
-      return bindText(input, docState.yjs.at(pick), handle);
+      const text = docState.yjs.at(pick);
+      const binding = {
+        change: (mutate: () => void) => handle.change(mutate),
+        shareCaret: (range: { start: number; end: number } | null) =>
+          aware.shareCaret(binding, text, range),
+      };
+
+      return bindText(input, text, binding);
+    },
+    carets(pick) {
+      return aware.carets(docState.yjs.at(pick), docState.state);
     },
     yjs: {
       doc: ydoc,
