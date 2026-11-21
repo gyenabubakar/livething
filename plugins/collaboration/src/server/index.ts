@@ -6,6 +6,8 @@ export type {
   CollaborationOptions,
   DocAccess,
   DocOf,
+  LoadContext,
+  LoadEvent,
   SaveContext,
   SaveEvent,
   ServerDoc,

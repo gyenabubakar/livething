@@ -36,4 +36,25 @@ describe('collaboration() types', () => {
       },
     });
   });
+
+  it('narrows the onLoad state and change by the doc type', () => {
+    collaboration({
+      docs: [taskBoard, meetingNotes],
+      access: () => 'edit',
+      onLoad(_ctx, loaded) {
+        expectTypeOf(loaded.empty).toEqualTypeOf<boolean>();
+        if (loaded.type === 'meeting-notes') {
+          loaded.change((d) => {
+            d.body = 'Agenda';
+          });
+          // @ts-expect-error a meeting note has no title
+          loaded.change((d) => void (d.title = 'Agenda'));
+          return;
+        }
+
+        expectTypeOf(loaded.state.title).toEqualTypeOf<string>();
+        expectTypeOf(loaded.change(() => 3)).toEqualTypeOf<number>();
+      },
+    });
+  });
 });

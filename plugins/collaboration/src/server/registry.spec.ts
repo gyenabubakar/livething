@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import type { CollaborationStorage, DocRef } from '~/doc/storage.ts';
 import type { Draft } from '~/schema.ts';
-import type { RegistryOptions } from '~/server/registry.ts';
+import type { LoadedDoc, RegistryOptions } from '~/server/registry.ts';
 
 const launch = { type: 'task-board', id: 'launch' };
 
@@ -338,6 +338,99 @@ describe('DocRegistry.flush() and a load that never ends', () => {
     }
 
     expect(errors.join()).toMatch(/stopped before every doc was stored/);
+  });
+});
+
+describe('DocRegistry, onLoad', () => {
+  it('keeps no change of an onLoad that throws after it, so the next load starts empty again', async () => {
+    const stored: Uint8Array[] = [];
+    const sent: Uint8Array[] = [];
+    const empties: boolean[] = [];
+    let fail = true;
+    const registry: DocRegistry = new DocRegistry({
+      defs: new Map([[taskBoard.name, taskBoard]]),
+      storage: {
+        load: () => [...stored],
+        append(_doc, update) {
+          stored.push(update);
+        },
+        compact(_doc, whole) {
+          stored.splice(0, stored.length, whole);
+        },
+      },
+      broadcast: (_doc, update) => sent.push(update),
+      members: () => 0,
+      saveDelayMs: 10,
+      reportError() {},
+      ...timerSaves(() => registry),
+      onLoad(_doc, loaded) {
+        empties.push(loaded.empty);
+        loaded.change((d) => {
+          (d as { title: string }).title = 'Half of the board';
+        });
+        if (fail) throw new Error('the second table is down');
+      },
+    });
+
+    await expect(registry.read(launch)).rejects.toThrow('the second table is down');
+    expect({ stored: stored.length, sent: sent.length }).toEqual({ stored: 0, sent: 0 });
+
+    fail = false;
+    expect(await registry.read(launch)).toMatchObject({ title: 'Half of the board' });
+    expect(empties).toEqual([true, true]);
+  });
+
+  it('still loads, with its changes stored, when sending them to the room fails', async () => {
+    const stored: Uint8Array[] = [];
+    const errors: string[] = [];
+    const registry: DocRegistry = new DocRegistry({
+      defs: new Map([[taskBoard.name, taskBoard]]),
+      storage: {
+        load: () => [...stored],
+        append(_doc, update) {
+          stored.push(update);
+        },
+        compact(_doc, whole) {
+          stored.splice(0, stored.length, whole);
+        },
+      },
+      broadcast() {
+        throw new Error('the room is gone');
+      },
+      members: () => 0,
+      saveDelayMs: 10,
+      reportError: (message) => errors.push(message),
+      ...timerSaves(() => registry),
+      onLoad(_doc, loaded) {
+        loaded.change((d) => {
+          (d as { title: string }).title = 'Filled';
+        });
+      },
+    });
+
+    expect(await registry.read(launch)).toMatchObject({ title: 'Filled' });
+    expect(stored).toHaveLength(1);
+    expect(errors).toEqual([expect.stringMatching(/could not send/)]);
+  });
+
+  it('refuses a change and a read of the doc it was given once onLoad ended', async () => {
+    let kept!: LoadedDoc;
+    const registry: DocRegistry = new DocRegistry({
+      defs: new Map([[taskBoard.name, taskBoard]]),
+      storage: { load: () => [], append() {}, compact() {} },
+      broadcast() {},
+      members: () => 1,
+      saveDelayMs: 10,
+      reportError() {},
+      ...timerSaves(() => registry),
+      onLoad(_doc, loaded) {
+        kept = loaded;
+      },
+    });
+    await registry.read(launch);
+
+    expect(() => kept.change(() => {})).toThrow(/onLoad ended/);
+    expect(() => kept.state()).toThrow(/onLoad ended/);
   });
 });
 

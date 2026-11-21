@@ -58,17 +58,34 @@ export function savedTitleKey(boardId: string): string {
   return `saved-title:${boardId}`;
 }
 
-/** The part of Cloudflare's `ctx.platform` an `onSave` here writes to. */
+/** The part of Cloudflare's `ctx.platform` that `onLoad` and `onSave` here use. */
 interface DurableStoragePlatform {
-  readonly ctx: { readonly storage: { put(key: string, value: string): Promise<void> } };
+  readonly ctx: {
+    readonly storage: {
+      get<T>(key: string): Promise<T | undefined>;
+      put(key: string, value: string): Promise<void>;
+    };
+  };
 }
 
-// Huddle's boards with an `onSave` that copies each board's title to the Durable Object's own
-// storage (Cloudflare only). A save is due 300 ms after the last edit.
+// Huddle's boards with the app's own copy of each board's title in the Durable Object's
+// storage (Cloudflare only): `onLoad` fills a new board from it, and `onSave` copies the
+// title back, 300 ms after the last edit.
 const HuddleSavedCollaboration = collaboration({
   docs: huddleDocs,
   access: () => 'edit',
   saveDelayMs: 300,
+  async onLoad(ctx, board) {
+    if (!board.empty) return;
+
+    const platform = ctx.platform as DurableStoragePlatform;
+    const title = await platform.ctx.storage.get<string>(savedTitleKey(board.id));
+    if (title !== undefined) {
+      board.change((draft) => {
+        draft.title = title;
+      });
+    }
+  },
   async onSave(ctx, event) {
     const platform = ctx.platform as DurableStoragePlatform;
     await platform.ctx.storage.put(savedTitleKey(event.id), event.state.title);

@@ -55,6 +55,7 @@ import type {
   WireAwareness,
 } from '~/doc/wire.ts';
 import type { DocDef, DocNamed, Draft, Snapshot } from '~/schema.ts';
+import type { LoadedDoc } from '~/server/registry.ts';
 import type { ServerStorage } from '~/server/storage.ts';
 
 /** The doc type is not one the server serves. */
@@ -106,6 +107,32 @@ export type SaveEvent<TDocs extends readonly DocDef[]> = {
 /** The parts of the server `onSave` can use: its logger and the adapter's platform object. */
 export type SaveContext = Pick<ConnectionlessContext, 'log' | 'platform'>;
 
+/** What `onLoad` gets: the same as `onSave`, its logger and the adapter's platform object. */
+export type LoadContext = SaveContext;
+
+/**
+ * What `onLoad` gets: a doc as it loads, before anyone reads it. Check `type` to narrow
+ * `state` and `change`.
+ */
+export type LoadEvent<TDocs extends readonly DocDef[]> = {
+  [N in TDocs[number]['name']]: DocRef<N> & {
+    /** Nothing was ever stored for the doc: it is new, or its storage was cleared. */
+    readonly empty: boolean;
+    /** The doc as stored. Throws `invalid-change` when that no longer matches the schema. */
+    readonly state: Snapshot<DocNamed<TDocs, N>['shape']>;
+    /**
+     * Edit the doc with the same draft as a server `change()`, and read it back in `state`.
+     * The changes are held until `onLoad` ends: then a member already in the room gets them,
+     * and they are stored. When `onLoad` throws, none of them is kept. They do not run
+     * `onSave`: they copy in what the app already has. Returns what `mutate` returns. Only
+     * while `onLoad` runs: later it throws, so edit the doc with a server `change()` then.
+     *
+     * @throws `invalid-change` when a value fails its schema; the doc stays as it was.
+     */
+    change<R>(mutate: (draft: Draft<DocNamed<TDocs, N>['shape']>) => R): R;
+  };
+}[TDocs[number]['name']];
+
 /** The options of the server's {@link collaboration}. */
 export interface CollaborationOptions<TDocs extends readonly DocDef[]> {
   /** Every doc type the app has: the same list the client gets. */
@@ -124,6 +151,15 @@ export interface CollaborationOptions<TDocs extends readonly DocDef[]> {
    * An error it throws is logged.
    */
   onSave?(ctx: SaveContext, event: SaveEvent<TDocs>): void | Promise<void>;
+  /**
+   * Runs each time a doc loads on this server, before anyone reads it. Use it to fill a new
+   * doc from the app's own database, or to bring a stored doc up to date with it: compare
+   * `doc.state` with the database, and call `doc.change()`. A throw fails the load and keeps
+   * none of its changes, so no client reads a half-filled doc; the next use tries again.
+   * Edit the doc only through `doc.change()` here: a server `read()` or `change()` of the same
+   * doc waits for the load, which waits for `onLoad`, so neither would ever end.
+   */
+  onLoad?(ctx: LoadContext, doc: LoadEvent<TDocs>): void | Promise<void>;
   /**
    * How long a doc must stay unchanged before `onSave` runs, in ms.
    * @default 2000
@@ -759,6 +795,21 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
                   id: doc.id,
                   state: saved,
                 } as SaveEvent<TDocs>),
+            }
+          : {}),
+        ...(options.onLoad
+          ? {
+              onLoad: (doc: DocRef, loaded: LoadedDoc) =>
+                options.onLoad!({ log: ctx.log, platform: ctx.platform }, {
+                  type: doc.type,
+                  id: doc.id,
+                  empty: loaded.empty,
+                  // Read when used: a doc the schema refuses still loads for a `change()`.
+                  get state() {
+                    return loaded.state();
+                  },
+                  change: loaded.change,
+                } as LoadEvent<TDocs>),
             }
           : {}),
         reportError,

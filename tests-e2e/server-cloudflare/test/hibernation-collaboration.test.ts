@@ -124,6 +124,20 @@ it('keeps editing a board across a hibernation wake', async () => {
   expect(alice.frames.filter((frame) => frame.event === 'refused')).toEqual([]);
 });
 
+it("fills a new board from the app's own copy with onLoad, before the first member syncs", async () => {
+  const stub = env.COLLABORATION_SAVES_SERVER.get(
+    env.COLLABORATION_SAVES_SERVER.idFromName('collaboration-loads'),
+  );
+  await runInDurableObject(stub, (_instance, state) =>
+    state.storage.put(savedTitleKey('launch'), 'Launch, from the app'),
+  );
+
+  const alice = await open(stub, 'alice');
+  await join(alice);
+
+  expect(alice.ydoc.getText('title').toString()).toBe('Launch, from the app');
+});
+
 it('runs an onSave that was due when the Durable Object was evicted', async () => {
   const stub = env.COLLABORATION_SAVES_SERVER.get(
     env.COLLABORATION_SAVES_SERVER.idFromName('collaboration-saves'),

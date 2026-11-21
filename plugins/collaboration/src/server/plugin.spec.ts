@@ -705,6 +705,73 @@ describe('collaboration() on the server', () => {
     });
   });
 
+  describe('onLoad', () => {
+    it('fills a new doc from the app before the first member syncs, and does not save that', async () => {
+      const loads: { empty: boolean; title: string }[] = [];
+      const onSave = vi.fn();
+      const { engine } = await startServer({
+        saveDelayMs: 20,
+        onSave,
+        onLoad(_ctx, doc) {
+          loads.push({ empty: doc.empty, title: doc.state.title });
+          if (doc.empty) {
+            doc.change((d) => {
+              d.title = 'Launch, from the app database';
+            });
+          }
+        },
+      });
+
+      const amara = await member(engine, 'u_amara');
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      expect(amara.board.state.get().title).toBe('Launch, from the app database');
+      expect(loads).toEqual([{ empty: true, title: '' }]);
+      expect(onSave).not.toHaveBeenCalled();
+    });
+
+    it('runs on each load, with what was stored', async () => {
+      const loads: { empty: boolean; title: string }[] = [];
+      const { api } = await startServer({
+        onLoad(_ctx, doc) {
+          loads.push({ empty: doc.empty, title: doc.state.title });
+        },
+      });
+      const launch = api().doc('task-board', 'launch');
+      await launch.change((d) => {
+        d.title = 'Stored';
+      });
+      await settle();
+
+      await settle();
+
+      expect(await launch.read()).toMatchObject({ title: 'Stored' });
+      expect(loads).toEqual([
+        { empty: true, title: '' },
+        { empty: false, title: 'Stored' },
+      ]);
+    });
+
+    it('fails the load when it throws, so nobody reads a doc it did not fill, and tries again', async () => {
+      let fail = true;
+      const { api } = await startServer({
+        onLoad(_ctx, doc) {
+          if (fail) throw new Error('the app database is down');
+
+          doc.change((d) => {
+            d.title = 'Filled on the second try';
+          });
+        },
+      });
+      const launch = api().doc('task-board', 'launch');
+
+      await expect(launch.read()).rejects.toThrow('the app database is down');
+      fail = false;
+
+      expect(await launch.read()).toMatchObject({ title: 'Filled on the second try' });
+    });
+  });
+
   describe('onSave', () => {
     it('runs once after the changes settle, with the doc and its content', async () => {
       const onSave = vi.fn();

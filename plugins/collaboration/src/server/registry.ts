@@ -25,6 +25,8 @@ export interface RegistryOptions {
   members(doc: DocRef): number;
   /** Runs after a doc's changes settle, `saveDelayMs` after the last one. */
   onSave?(doc: DocRef, state: unknown): void | Promise<void>;
+  /** Runs each time a doc loads, before anyone reads it. A throw fails the load, keeping no change. */
+  onLoad?(doc: DocRef, load: LoadedDoc): void | Promise<void>;
   readonly saveDelayMs: number;
   /**
    * Keep "save `doc` at `time`" in storage, so it runs even after the server restarts, and
@@ -35,6 +37,19 @@ export interface RegistryOptions {
   /** Drop the stored save of `doc`, once it ran some other way. */
   cancelSave(doc: DocRef): void;
   reportError(message: string, error: unknown): void;
+}
+
+/** A doc as it loads, for `onLoad`. */
+export interface LoadedDoc {
+  /** Nothing was ever stored for the doc. */
+  readonly empty: boolean;
+  /** The doc as stored. Throws `invalid-change` when that no longer matches the schema. */
+  state(): Snapshot<DocDef['shape']>;
+  /**
+   * A server change, held until `onLoad` ends: then members get it, and it is stored; none is
+   * kept when `onLoad` throws. It does not run `onSave`. It throws once `onLoad` ended.
+   */
+  change<R>(mutate: (draft: Draft<DocDef['shape']>) => R): R;
 }
 
 /** One loaded doc. */
@@ -75,6 +90,11 @@ interface OpenDoc {
 
 interface ReleaseOptions {
   readonly saveNow: boolean;
+}
+
+interface ApplyOptions {
+  /** Schedule `onSave` for the change. */
+  readonly save: boolean;
 }
 
 function keyOf(doc: DocRef): string {
@@ -171,38 +191,64 @@ export class DocRegistry {
     mutateOf: (core: DocCore) => (draft: Draft<DocDef['shape']>) => R,
   ): Promise<R> {
     return this.with(ref, async (doc) => {
-      // Every update the change makes, whatever its origin: a change that throws is rolled
-      // back by a second transaction, and both must reach the members and storage, or the
-      // server's clock runs past what they have.
-      const made: Uint8Array[] = [];
-      function capture(update: Uint8Array) {
-        made.push(update);
-      }
-
-      doc.core.ydoc.on('update', capture);
-      let outcome: { ok: true; result: R } | { ok: false; error: unknown };
       try {
-        outcome = { ok: true, result: doc.core.change(mutateOf(doc.core), new ChangeOrigin()) };
-      } catch (error) {
-        outcome = { ok: false, error };
+        return this.apply(doc, mutateOf(doc.core), { save: true });
       } finally {
-        doc.core.ydoc.off('update', capture);
+        await doc.writes;
       }
-
-      if (made.length > 0) {
-        const update = Y.mergeUpdates(made);
-        // The doc holds the change now, so it is stored even when sending it throws.
-        try {
-          this.options.broadcast(ref, update);
-        } finally {
-          await this.store(doc, update);
-        }
-      }
-
-      if (!outcome.ok) throw outcome.error;
-
-      return outcome.result;
     });
+  }
+
+  /**
+   * Make a server change in a loaded doc: every member gets it, and it is stored (the write
+   * is queued; await `doc.writes` for it). With `save`, it schedules `onSave` too.
+   */
+  private apply<R>(
+    doc: OpenDoc,
+    mutate: (draft: Draft<DocDef['shape']>) => R,
+    options: ApplyOptions,
+  ): R {
+    const { outcome, update } = this.capture(doc, mutate);
+    if (update) this.send(doc, update, options);
+
+    if (!outcome.ok) throw outcome.error;
+
+    return outcome.result;
+  }
+
+  /**
+   * Make a change in a loaded doc, and give every update it made, merged, or `null`: a change
+   * that throws is rolled back by a second transaction, and both must reach the members and
+   * storage, or the server's clock runs past what they have.
+   */
+  private capture<R>(doc: OpenDoc, mutate: (draft: Draft<DocDef['shape']>) => R) {
+    const made: Uint8Array[] = [];
+    function collect(update: Uint8Array) {
+      made.push(update);
+    }
+
+    doc.core.ydoc.on('update', collect);
+    let outcome: { ok: true; result: R } | { ok: false; error: unknown };
+    try {
+      outcome = { ok: true, result: doc.core.change(mutate, new ChangeOrigin()) };
+    } catch (error) {
+      outcome = { ok: false, error };
+    } finally {
+      doc.core.ydoc.off('update', collect);
+    }
+
+    return { outcome, update: made.length > 0 ? Y.mergeUpdates(made) : null };
+  }
+
+  /** Send an update the doc holds to every member, and queue its write. */
+  private send(doc: OpenDoc, update: Uint8Array, options: ApplyOptions): void {
+    // The doc holds the change now, so it is stored even when sending it throws.
+    try {
+      this.options.broadcast(doc.ref, update);
+    } finally {
+      if (options.save) void this.store(doc, update);
+      else doc.writes = doc.writes.then(() => this.write(doc, update));
+    }
   }
 
   /** A doc's content as a snapshot. */
@@ -397,7 +443,7 @@ export class DocRegistry {
       );
     }
 
-    return {
+    const doc: OpenDoc = {
       ref,
       core: new DocCore(def, ydoc),
       writes: Promise.resolve(),
@@ -413,6 +459,56 @@ export class DocRegistry {
       saveWhenIdle: false,
       saving: null,
     };
+
+    if (!this.options.onLoad) return doc;
+
+    // Before anyone reads the doc: the app may fill it from its own database. Its changes are
+    // held, and sent and stored only once it ends: a throw fails the load with none of them,
+    // so nobody reads a half-filled doc, and the next use tries again from what was stored.
+    const held: Uint8Array[] = [];
+    let running = true;
+    function checkRunning(): void {
+      if (!running) {
+        throw new Error(`onLoad ended for '${keyOf(ref)}': edit the doc with a server change()`);
+      }
+    }
+
+    try {
+      await this.options.onLoad(ref, {
+        empty: updates.length === 0,
+        state: () => {
+          checkRunning();
+          return doc.core.read();
+        },
+        change: (mutate) => {
+          checkRunning();
+          const { outcome, update } = this.capture(doc, mutate);
+          if (update) held.push(update);
+          if (!outcome.ok) throw outcome.error;
+
+          return outcome.result;
+        },
+      });
+    } catch (error) {
+      running = false;
+      doc.core.destroy();
+      throw error;
+    }
+
+    running = false;
+    // It copies in what the app already has, so it is no reason to run `onSave`. The doc holds
+    // the changes now and stores them even when the room can't get them: it still loads.
+    if (held.length > 0) {
+      try {
+        this.send(doc, Y.mergeUpdates(held), { save: false });
+      } catch (error) {
+        this.options.reportError(`could not send what onLoad changed in '${keyOf(ref)}'`, error);
+      }
+    }
+
+    await doc.writes;
+
+    return doc;
   }
 
   /** Store an update after the doc's earlier writes, and schedule the save. Never rejects. */
