@@ -171,8 +171,16 @@ const landingItems = [
     ]
   },
   {
-    label: 'Cloudflare',
-    to: '/cloudflare'
+    label: 'Runtimes',
+    to: '/core/runtimes/overview',
+    children: [
+      {
+        label: 'Cloudflare',
+        icon: 'i-simple-icons-cloudflare',
+        description: 'Your own realtime cloud on Durable Objects',
+        to: '/cloudflare'
+      }
+    ]
   }
 ]
 </script>

@@ -8,7 +8,7 @@ const files: { name: string, lines: Line[] }[] = [
     name: 'chat.ts',
     lines: [
       { kind: ' ', text: 'const base = server({' },
-      { kind: '-', text: '  hibernation: { enabled: true },' },
+      { kind: '-', text: '  hibernation: true,' },
       { kind: ' ', text: '  capabilities: [emits({ message: t<Message>() })],' },
       { kind: ' ', text: '})' },
     ],

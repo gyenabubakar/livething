@@ -14,9 +14,9 @@ const steps = [
     code: 'env.CHAT_ROOM.idFromName(\'room:launch\')',
   },
   {
-    title: 'Quiet rooms sleep, and cost nothing',
+    title: 'Quiet rooms sleep, and stop billing for time',
     body: 'Turn on hibernation and a quiet room leaves memory between messages. The sockets stay open at the edge, Cloudflare answers keepalive pings there, and you are not billed for the idle time.',
-    code: 'server({ hibernation: { enabled: true } })',
+    code: 'server({ hibernation: true })',
   },
   {
     title: 'A message wakes it in milliseconds',

@@ -96,7 +96,7 @@ useIllustration(terminal, () => createTimeline({ loop: true, autoplay: false, lo
 <span class="text-violet-400">import</span> * <span class="text-violet-400">as</span> v <span class="text-violet-400">from</span> <span class="text-emerald-300">'valibot'</span>
 
 <span class="text-violet-400">const</span> base = <span class="text-amber-300">server</span>({
-  hibernation: { enabled: <span class="text-orange-300">true</span> },
+  hibernation: <span class="text-orange-300">true</span>,
   capabilities: [
     <span class="text-amber-300">emits</span>({ message: t&lt;{ text: <span class="text-sky-300">string</span>; from: <span class="text-sky-300">string</span> }&gt;() }),
   ],

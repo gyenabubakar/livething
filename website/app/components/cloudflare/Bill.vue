@@ -170,10 +170,10 @@ useViewportActivation(receipt, { threshold: 0.3, onEnter: () => { printed.value 
         The bill
       </p>
       <h2 class="section-title max-w-3xl">
-        Pay for compute, not for success<span class="text-primary">.</span>
+        Pay for what runs, not for how many users you have<span class="text-primary">.</span>
       </h2>
       <p class="mt-5 max-w-xl text-base/7 text-muted">
-        Hosted realtime is priced per connection, per message or per monthly user, so growth raises the bill. On Cloudflare you pay for requests, awake time and storage, and quiet rooms cost nothing. Pick a size, then tune it to see a month of a chat app.
+        Hosted realtime is priced per connection, per message or per monthly user, so growth raises the bill. On Cloudflare you pay for requests, awake time and storage, and with hibernation a quiet WebSocket room costs only its storage. Pick a size, then tune it to see a month of a chat app.
       </p>
     </div>
 
