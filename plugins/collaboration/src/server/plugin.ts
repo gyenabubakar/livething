@@ -303,7 +303,7 @@ class Parts {
 
     this.drop(sender);
 
-    return Y.mergeUpdates([joinBytes(pending.pieces)]);
+    return joinBytes(pending.pieces);
   }
 
   drop(sender: Sender): void {

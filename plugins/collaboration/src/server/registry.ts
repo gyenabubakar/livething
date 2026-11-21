@@ -357,9 +357,12 @@ export class DocRegistry {
     const updates = await this.options.storage.load(ref);
     const ydoc = new Y.Doc();
     // A stored update that does not apply (written by another version, or broken) must not
-    // stop the doc from opening: report it, and load the rest.
+    // stop the doc from opening: report it, and load the rest. Yjs applies an update as it
+    // reads it, so a broken one is read whole first: half an edit must not go in, as the
+    // schema could then refuse the doc on every read.
     for (const update of updates) {
       try {
+        Y.decodeUpdate(update);
         Y.applyUpdate(ydoc, update);
       } catch (error) {
         this.options.reportError(`a stored update of '${keyOf(ref)}' does not apply`, error);

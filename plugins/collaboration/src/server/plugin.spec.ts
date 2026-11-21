@@ -301,6 +301,20 @@ describe('collaboration() on the server', () => {
       expect(logged).toEqual([]);
     });
 
+    it('refuses bytes sent in parts that are not a Yjs update, as it does sent whole', async () => {
+      const { engine, logged } = await startServer();
+      const amara = await member(engine, 'u_amara');
+
+      await amara.update('launch', { n: 1, part: [0, 2] }, new Uint8Array([1, 2, 3, 250]));
+      await amara.update('launch', { n: 1, part: [1, 2] }, new Uint8Array([99, 7, 7, 7]));
+
+      expect(amara.of('refused').map((frame) => frame.info)).toEqual([
+        { n: 1, reason: 'the bytes are not a Yjs update' },
+      ]);
+      expect(amara.errors()).toEqual([]);
+      expect(logged).toEqual([]);
+    });
+
     it('sends an update bigger than a frame may be in parts, to every member', async () => {
       const { engine } = await startServer({ sendBytes: 300_000 });
       const amara = await member(engine, 'u_amara');

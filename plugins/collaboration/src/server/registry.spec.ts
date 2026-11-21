@@ -364,6 +364,34 @@ describe('DocRegistry.flush()', () => {
   });
 });
 
+describe('DocRegistry, loading', () => {
+  it('skips a stored update cut off at the end whole, not just the part after the cut', async () => {
+    const writer = open(taskBoard);
+    writer.change((d) => {
+      d.title = 'Launch';
+    });
+    const first = Y.encodeStateAsUpdate(writer.ydoc);
+    const before = Y.encodeStateVector(writer.ydoc);
+    writer.change((d) => {
+      d.title = 'Launch plan';
+    });
+
+    const second = Y.encodeStateAsUpdate(writer.ydoc, before);
+    const errors: string[] = [];
+    const registry = new DocRegistry({
+      defs: new Map([[taskBoard.name, taskBoard]]),
+      storage: { load: () => [first, second.slice(0, -1)], append() {}, compact() {} },
+      broadcast() {},
+      members: () => 1,
+      saveDelayMs: 10,
+      reportError: (message) => errors.push(message),
+    });
+
+    expect((await registry.read(launch)).title).toBe('Launch');
+    expect(errors).toEqual([expect.stringMatching(/does not apply/)]);
+  });
+});
+
 describe('DocRegistry.restore()', () => {
   it('refuses a version the schema now refuses, and leaves the doc as it was', async () => {
     const { registry } = setup(() => 1);
