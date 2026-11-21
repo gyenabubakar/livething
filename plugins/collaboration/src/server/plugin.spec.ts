@@ -279,6 +279,29 @@ describe('collaboration() on the server', () => {
       ]);
     });
 
+    it('refuses the parts of one update when they carry different numbers', async () => {
+      const { engine } = await startServer();
+      const amara = await member(engine, 'u_amara');
+
+      const before = Y.encodeStateVector(amara.board.ydoc);
+      amara.board.change((d) => {
+        d.title = 'Sent in two parts';
+      });
+
+      const update = Y.encodeStateAsUpdate(amara.board.ydoc, before);
+      const half = Math.floor(update.length / 2);
+
+      await amara.update('launch', { n: 1, part: [0, 2] }, update.slice(0, half));
+      await amara.update('launch', { n: 2, part: [1, 2] }, update.slice(half));
+
+      expect(amara.of('ack')).toEqual([]);
+      expect(amara.errors()).toEqual([
+        expect.objectContaining({
+          detail: { reason: 'the parts of an update came out of order' },
+        }),
+      ]);
+    });
+
     it('refuses update info it cannot read', async () => {
       const { engine } = await startServer();
       const amara = await member(engine, 'u_amara');

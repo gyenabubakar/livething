@@ -222,6 +222,8 @@ function errorData(cause: unknown): Record<string, unknown> {
 interface Pending {
   readonly pieces: Uint8Array[];
   readonly count: number;
+  /** The update's number, which every part carries and the ack gives back. */
+  readonly n: number;
   bytes: number;
   /** Lets the pieces go when no next piece comes in time. */
   timer?: ReturnType<typeof setTimeout>;
@@ -265,10 +267,11 @@ class Parts {
     const rooms = this.waiting.get(connection) ?? new Map<string, Pending>();
     const [index, count] = info.part;
     const pending: Pending | undefined =
-      index === 0 ? { pieces: [], count, bytes: 0 } : rooms.get(room);
+      index === 0 ? { pieces: [], count, n: info.n, bytes: 0 } : rooms.get(room);
     if (
       !pending ||
       pending.count !== count ||
+      pending.n !== info.n ||
       pending.pieces.length !== index ||
       count > MAX_PARTS
     ) {
