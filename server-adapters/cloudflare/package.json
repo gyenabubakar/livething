@@ -1,6 +1,24 @@
 {
   "name": "@livething/server-cloudflare",
-  "version": "1.0.0-beta.0",
+  "version": "1.0.0-alpha.0",
+  "description": "Run a typed LiveThing realtime WebSocket server on Cloudflare Durable Objects and Workers, with WebSocket hibernation.",
+  "license": "MIT",
+  "homepage": "https://livething.dev/core/runtimes/adapters/cloudflare",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gyenabubakar/livething.git",
+    "directory": "server-adapters/cloudflare"
+  },
+  "keywords": [
+    "livething",
+    "realtime",
+    "websocket",
+    "typescript",
+    "cloudflare",
+    "cloudflare-workers",
+    "durable-objects",
+    "hibernation"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/src/index.d.ts",
@@ -27,7 +45,7 @@
     "clean": "rm -rf dist node_modules"
   },
   "peerDependencies": {
-    "@livething/server": "^1.0.0-beta.0"
+    "@livething/server": "^1.0.0-alpha.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250410.0",

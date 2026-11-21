@@ -1,6 +1,27 @@
 {
   "name": "@livething/server-node",
-  "version": "1.0.0-beta.0",
+  "version": "1.0.0-alpha.0",
+  "description": "Run a typed LiveThing realtime WebSocket server on Node.js, alone or with Express, Koa, Hono, Fastify or h3.",
+  "license": "MIT",
+  "homepage": "https://livething.dev/core/runtimes/adapters/node",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gyenabubakar/livething.git",
+    "directory": "server-adapters/node"
+  },
+  "keywords": [
+    "livething",
+    "realtime",
+    "websocket",
+    "websocket-server",
+    "typescript",
+    "node",
+    "express",
+    "koa",
+    "hono",
+    "fastify",
+    "h3"
+  ],
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -55,7 +76,7 @@
   "peerDependencies": {
     "@fastify/websocket": "^11.3.0",
     "@hono/node-server": "^2.1.1",
-    "@livething/server": "^1.0.0-beta.0",
+    "@livething/server": "^1.0.0-alpha.0",
     "crossws": "^0.3.5 || ^0.4.12",
     "fastify": "^5.12.3",
     "h3": "^1.15.11 || ^2.0.1-rc.31",

@@ -1,6 +1,26 @@
 {
   "name": "@livething/server",
-  "version": "1.0.0-beta.0",
+  "version": "1.0.0-alpha.0",
+  "description": "Typed realtime WebSocket server framework for TypeScript: define events, requests and rooms once, and the client is typed from them. Runs on Node.js and Cloudflare.",
+  "license": "MIT",
+  "homepage": "https://livething.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gyenabubakar/livething.git",
+    "directory": "server"
+  },
+  "keywords": [
+    "livething",
+    "realtime",
+    "websocket",
+    "websocket-server",
+    "typescript",
+    "typed",
+    "rooms",
+    "pubsub",
+    "presence",
+    "server-sent-events"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -108,7 +128,7 @@
     "valibot": "^1.3.1"
   },
   "peerDependencies": {
-    "@livething/core": "^1.0.0-beta.0"
+    "@livething/core": "^1.0.0-alpha.0"
   },
   "devDependencies": {
     "@livething/core": "workspace:*",

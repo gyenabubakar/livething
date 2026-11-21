@@ -191,7 +191,7 @@ export default defineNuxtConfig({
     },
     repository: {
       provider: 'github',
-      owner: 'workmatter',
+      owner: 'gyenabubakar',
       repo: 'livething',
       rootDir: 'website',
     },

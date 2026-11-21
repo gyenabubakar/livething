@@ -1,6 +1,26 @@
 {
   "name": "@livething/plugin-collaboration",
-  "version": "1.0.0-beta.0",
+  "version": "1.0.0-alpha.0",
+  "description": "Realtime collaborative editing for TypeScript: typed CRDT documents built on Yjs, checked by your server, with undo, versions, live carets and offline edits.",
+  "license": "MIT",
+  "homepage": "https://livething.dev/plugins/collaboration/overview",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gyenabubakar/livething.git",
+    "directory": "plugins/collaboration"
+  },
+  "keywords": [
+    "livething",
+    "realtime",
+    "collaboration",
+    "collaborative-editing",
+    "multiplayer",
+    "crdt",
+    "yjs",
+    "typescript",
+    "offline-first",
+    "cursors"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -41,13 +61,16 @@
     "y-protocols": "^1.0.7"
   },
   "peerDependencies": {
-    "@livething/client": "^1.0.0-beta.0",
-    "@livething/core": "^1.0.0-beta.0",
-    "@livething/server": "^1.0.0-beta.0",
+    "@livething/client": "^1.0.0-alpha.0",
+    "@livething/core": "^1.0.0-alpha.0",
+    "@livething/server": "^1.0.0-alpha.0",
     "yjs": "^13.6.33"
   },
   "peerDependenciesMeta": {
     "@livething/client": {
+      "optional": true
+    },
+    "@livething/server": {
       "optional": true
     }
   },

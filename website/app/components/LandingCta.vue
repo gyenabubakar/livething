@@ -11,7 +11,7 @@
         <div class="flex flex-wrap items-center justify-center gap-3">
           <UButton to="/core/start/installation" size="lg" class="bg-zinc-950 text-white hover:bg-zinc-800" trailing-icon="i-ph-arrow-right-duotone" label="Get started" />
           <UButton
-            to="https://github.com/workmatter/livething"
+            to="https://github.com/gyenabubakar/livething"
             target="_blank"
             size="lg"
             class="border border-white/50 bg-white/10 text-white hover:bg-white/20"
@@ -32,7 +32,7 @@
           <a href="https://x.com/GyenAbubakar" target="_blank" rel="noopener noreferrer" aria-label="X" class="hover:text-highlighted">
             <UIcon name="i-simple-icons-x" class="size-4" />
           </a>
-          <a href="https://github.com/workmatter/livething" target="_blank" rel="noopener noreferrer" aria-label="GitHub" class="hover:text-highlighted">
+          <a href="https://github.com/gyenabubakar/livething" target="_blank" rel="noopener noreferrer" aria-label="GitHub" class="hover:text-highlighted">
             <UIcon name="i-simple-icons-github" class="size-4" />
           </a>
         </div>
