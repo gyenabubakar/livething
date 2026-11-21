@@ -347,6 +347,35 @@ describe('collaboration() on the server', () => {
       ]);
     });
 
+    it('lets go of an update in parts when no next part comes for 60 seconds', async () => {
+      const { engine } = await startServer();
+      const amara = await member(engine, 'u_amara');
+      const before = Y.encodeStateVector(amara.board.ydoc);
+      amara.board.change((d) => {
+        d.title = 'Sent in two parts';
+      });
+      const update = Y.encodeStateAsUpdate(amara.board.ydoc, before);
+
+      const half = Math.floor(update.length / 2);
+
+      // Time moves on by itself too, for the waits inside `update()`.
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+      try {
+        await amara.update('launch', { n: 1, part: [0, 2] }, update.slice(0, half));
+        vi.advanceTimersByTime(60_000);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      await amara.update('launch', { n: 1, part: [1, 2] }, update.slice(half));
+
+      expect(amara.errors()).toEqual([
+        expect.objectContaining({
+          detail: { reason: 'the parts of an update came out of order' },
+        }),
+      ]);
+    });
+
     it('holds at most 32 MiB of waiting parts for one connection, across rooms', async () => {
       const { engine } = await startServer();
       const amara = await member(engine, 'u_amara');

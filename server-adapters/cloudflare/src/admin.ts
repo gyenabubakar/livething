@@ -458,9 +458,14 @@ function pluginTarget(id: string, api: unknown): RpcTarget {
   const proto = Target.prototype as unknown as Record<string, unknown>;
   for (let level: object | null = api; level && level !== Object.prototype; ) {
     for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(level))) {
-      // A getter is read from its descriptor, so it never runs.
-      const method: unknown = descriptor.value;
-      if (typeof method !== 'function' || isClassConstructor(key, level, method)) continue;
+      // The api's type has a getter that gives a method too. It runs only when the method is
+      // called, never while the api is read.
+      const { value, get } = descriptor as { value?: unknown; get?: () => unknown };
+      const skip =
+        typeof value === 'function'
+          ? isClassConstructor(key, level, value)
+          : typeof get !== 'function';
+      if (skip) continue;
 
       if (RESERVED_PLUGIN_METHODS.has(key)) {
         throw new Error(
@@ -471,8 +476,14 @@ function pluginTarget(id: string, api: unknown): RpcTarget {
       // A name an upper level already gave keeps that method.
       if (Object.hasOwn(proto, key)) continue;
 
-      proto[key] = (...args: unknown[]) =>
-        (method as (...a: unknown[]) => unknown).apply(api, args);
+      proto[key] = (...args: unknown[]) => {
+        const method = typeof value === 'function' ? value : get!.call(api);
+        if (typeof method !== 'function') {
+          throw new TypeError(`[livething] plugin '${id}' has no api method named '${key}'.`);
+        }
+
+        return (method as (...a: unknown[]) => unknown).apply(api, args);
+      };
     }
 
     level = Object.getPrototypeOf(level) as object | null;

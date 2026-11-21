@@ -223,7 +223,16 @@ interface Pending {
   readonly pieces: Uint8Array[];
   readonly count: number;
   bytes: number;
+  /** Lets the pieces go when no next piece comes in time. */
+  timer?: ReturnType<typeof setTimeout>;
 }
+
+/**
+ * How long the server waits for the next part of an update before it lets the pieces go, so
+ * a client that stops halfway can't keep them in memory. Even a slow phone sends a part
+ * (at most 256 KiB) in far less.
+ */
+const PART_TIMEOUT_MS = 60_000;
 
 /** Who sends an update in parts: a connection, to one doc's room. */
 interface Sender {
@@ -269,7 +278,16 @@ class Parts {
 
     pending.pieces.push(bytes.slice());
     pending.bytes += bytes.length;
+    const replaced = rooms.get(room);
+    if (replaced && replaced !== pending) clearTimeout(replaced.timer);
+
     rooms.set(room, pending);
+    clearTimeout(pending.timer);
+    pending.timer = setTimeout(() => {
+      if (this.waiting.get(connection)?.get(room) === pending) this.drop(sender);
+    }, PART_TIMEOUT_MS);
+    // It must not keep a Node server from stopping.
+    (pending.timer as { unref?: () => void }).unref?.();
     let held = 0;
     for (const each of rooms.values()) held += each.bytes;
 
@@ -290,6 +308,7 @@ class Parts {
 
   drop(sender: Sender): void {
     const rooms = this.waiting.get(sender.connection);
+    clearTimeout(rooms?.get(sender.room)?.timer);
     rooms?.delete(sender.room);
     if (rooms?.size === 0) this.waiting.delete(sender.connection);
   }

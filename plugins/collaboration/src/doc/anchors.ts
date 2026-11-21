@@ -45,7 +45,10 @@ export interface TextPlace {
   readonly text: string;
 }
 
-/** Where an item anchor's item is now. `index` is its place in a list, or `null` in a record. */
+/**
+ * Where an item anchor's item is now. In a list, `key` is the item's ID (as `keyOf()` gives)
+ * and `index` its place. In a record, `key` is the record key and `index` is `null`.
+ */
 export interface ItemPlace {
   readonly key: string;
   readonly index: number | null;

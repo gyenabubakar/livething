@@ -1350,6 +1350,29 @@ describe('LiveThingDurableObject admin()', () => {
     expect(read).not.toHaveBeenCalled();
   });
 
+  it('calls a method that a getter gives, reading the getter only when it is called', async () => {
+    const read = vi.fn(() => (pollId: string) => `closed ${pollId}`);
+    const api = {
+      get closePoll() {
+        return read();
+      },
+    };
+
+    fake = makeFakeEngine();
+    fake.adminApi.plugin = () => api;
+    const Cls = bind({} as never) as unknown as new (
+      ctx: DurableObjectState,
+      env: unknown,
+    ) => DOInstance;
+    const admin = await new Cls(makeFakeDOState() as unknown as DurableObjectState, {}).admin();
+    const target = (admin.plugin as (id: string) => Record<string, (id: string) => unknown>)(
+      'acme:polls',
+    );
+
+    expect(read).not.toHaveBeenCalled();
+    expect(target.closePoll?.('p1')).toBe('closed p1');
+  });
+
   it.each(['then', 'dup', 'constructor', '__proto__'])(
     'refuses a plugin api method named %s',
     async (name) => {

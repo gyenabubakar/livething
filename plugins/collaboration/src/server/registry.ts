@@ -268,7 +268,12 @@ export class DocRegistry {
     // such as while an `onSave` runs: pass again until a pass leaves nothing to do.
     let timedOut = false;
     const done = (async () => {
-      while (!timedOut && (await this.flushPass()));
+      while (!timedOut && (await this.flushPass())) {
+        // A pass can end without waiting on anything real, such as when storage fails at once:
+        // wait for the timers, so the time limit can still end the flush.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
       return true;
     })();
 
@@ -317,11 +322,11 @@ export class DocRegistry {
       }),
     );
 
+    // A doc still unstored after this pass's write is not new work: storage is failing, and
+    // the error was logged. Writing again at once would only fail again.
     return (
       this.docs.size > loaded.length ||
-      docs.some(
-        (doc) => doc.writes !== awaited.get(doc) || doc.unstored || doc.saving || doc.saveTimer,
-      )
+      docs.some((doc) => doc.writes !== awaited.get(doc) || doc.saving || doc.saveTimer)
     );
   }
 

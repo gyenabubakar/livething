@@ -305,6 +305,22 @@ describe('DocRegistry.flush()', () => {
     expect(storedTitle()).toBe('Kept');
   });
 
+  it('tries a failed write once, not again and again, when storage keeps failing', async () => {
+    const { registry, state, errors } = setup(() => 1);
+    await registry.change(launch, (d) => {
+      (d as { title: string }).title = 'Kept in memory';
+    });
+    state.failing = true;
+    await registry.change(launch, (d) => {
+      (d as { title: string }).title = 'Not stored';
+    });
+    errors.length = 0;
+
+    await registry.flush();
+
+    expect(errors).toEqual([expect.stringMatching(/could not store/)]);
+  });
+
   it('also stores a change that comes in while it runs, such as during an onSave', async () => {
     const stored: Uint8Array[] = [];
     let saves = 0;
