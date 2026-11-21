@@ -17,7 +17,11 @@
     "cloudflare",
     "cloudflare-workers",
     "durable-objects",
-    "hibernation"
+    "hibernation",
+    "real-time",
+    "websockets",
+    "partykit",
+    "serverless"
   ],
   "type": "module",
   "main": "dist/index.js",

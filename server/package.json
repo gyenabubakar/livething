@@ -19,7 +19,17 @@
     "rooms",
     "pubsub",
     "presence",
-    "server-sent-events"
+    "server-sent-events",
+    "real-time",
+    "websockets",
+    "type-safe",
+    "trpc",
+    "socket.io",
+    "sse",
+    "chat",
+    "streaming",
+    "multiplayer",
+    "cloudflare-workers"
   ],
   "type": "module",
   "main": "dist/index.js",

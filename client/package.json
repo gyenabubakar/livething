@@ -19,7 +19,13 @@
     "reconnect",
     "rooms",
     "server-sent-events",
-    "react-native"
+    "react-native",
+    "real-time",
+    "websockets",
+    "type-safe",
+    "sse",
+    "reconnecting-websocket",
+    "socket.io"
   ],
   "type": "module",
   "sideEffects": false,

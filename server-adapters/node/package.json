@@ -20,7 +20,9 @@
     "koa",
     "hono",
     "fastify",
-    "h3"
+    "h3",
+    "real-time",
+    "websockets"
   ],
   "type": "module",
   "engines": {

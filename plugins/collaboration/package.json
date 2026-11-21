@@ -19,7 +19,13 @@
     "yjs",
     "typescript",
     "offline-first",
-    "cursors"
+    "cursors",
+    "real-time",
+    "crdts",
+    "collaborative",
+    "presence",
+    "prosemirror",
+    "tiptap"
   ],
   "type": "module",
   "main": "dist/index.js",
