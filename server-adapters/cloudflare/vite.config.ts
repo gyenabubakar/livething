@@ -18,7 +18,8 @@ export default defineConfig({
       formats: ['es'],
     },
     minify: true,
-    sourcemap: true,
+    // Maps are not published, so the built files must not point to them.
+    sourcemap: 'hidden',
     rollupOptions: {
       // `node:*` builtins are provided by the Workers runtime (nodejs_compat);
       // keep them external so the bundler never stubs them out.

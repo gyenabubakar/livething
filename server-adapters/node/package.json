@@ -104,6 +104,7 @@
   },
   "dependencies": {
     "@fastify/proxy-addr": "^5.1.0",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/ws": "^8.5.12",
     "better-sqlite3": "^12.11.1",
     "ws": "^8.18.0"
@@ -113,7 +114,6 @@
     "@hono/node-server": "^2.1.1",
     "@livething/client": "workspace:*",
     "@livething/server": "workspace:*",
-    "@types/better-sqlite3": "^9.6.0",
     "crossws": "^0.4.12",
     "crossws-v1": "npm:crossws@0.3.5",
     "fastify": "^5.12.3",

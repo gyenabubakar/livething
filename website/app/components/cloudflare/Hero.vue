@@ -2,7 +2,7 @@
 import { useIntersectionObserver } from '@vueuse/core'
 
 const commands = [
-  'pnpm add @livething/server @livething/server-cloudflare @livething/client',
+  'pnpm add @livething/server @livething/server-cloudflare @livething/client @livething/core',
   'pnpm wrangler deploy',
 ]
 
@@ -33,7 +33,7 @@ async function copy() {
         Your own realtime cloud, on Cloudflare<span class="text-primary">.</span>
       </h1>
       <p class="mb-8 max-w-lg text-base/7 text-muted">
-        Chat, presence, push notifications, notification feeds and multiplayer editing: the features you would rent from a realtime service, deployed to your own Cloudflare account. Every room runs as a Durable Object in one of 348 cities, and you pay Cloudflare's prices.
+        Rooms, presence and shared documents today, with chat, push notifications, notification feeds and comments coming next: the features you would rent from a realtime service, deployed to your own Cloudflare account. Every room runs as a Durable Object in one of 348 cities, and you pay Cloudflare's prices.
       </p>
 
       <div class="flex flex-wrap items-center gap-3">

@@ -5,7 +5,7 @@ definePageMeta({
 
 useSeo({
   title: 'LiveThing on Cloudflare: your own realtime cloud',
-  description: 'Chat, presence, push notifications, notification feeds and multiplayer editing, deployed to your own Cloudflare account on Durable Objects. One wrangler deploy, 348 cities, billed at Cloudflare rates.',
+  description: 'Typed realtime in your own Cloudflare account: rooms, presence and shared documents on Durable Objects, billed at Cloudflare rates. One wrangler deploy.',
   type: 'website',
 })
 
@@ -36,7 +36,7 @@ const statement = [
     <LandingCta>
       <template #title>Own your realtime</template>
       <template #description>
-        Chat, presence, push, feeds and multiplayer, typed end to end and running in your Cloudflare account. No realtime vendor between you and your users.
+        Rooms, presence and shared documents, typed end to end and running in your Cloudflare account. No realtime vendor between you and your users.
       </template>
     </LandingCta>
   </main>

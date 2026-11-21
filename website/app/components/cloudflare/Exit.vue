@@ -38,7 +38,7 @@ const tone = {
 const moves = [
   'Handlers written against ctx, channels, requests and streams',
   'The client, and every type it gets from your server',
-  'Your data, which is plain SQLite you can export with an admin method',
+  'Your data, which is plain SQLite: read it out with your own admin method',
 ]
 const changes = [
   'The adapter file and the Worker that routes to it',
@@ -56,7 +56,7 @@ const changes = [
         Leave whenever you want<span class="text-primary">.</span>
       </h2>
       <p class="mt-5 max-w-lg text-base/7 text-muted">
-        LiveThing is a framework, not a platform. The code you write against its APIs runs on Node, Bun and Deno too. To move, you swap the adapter and refactor only the parts of your app that call Cloudflare themselves.
+        LiveThing is a framework, not a platform. The code you write against its APIs runs on Node and Bun too. To move, you swap the adapter and refactor only the parts of your app that call Cloudflare themselves.
       </p>
       <div class="mt-8 grid max-w-lg gap-6 text-sm/6 text-muted sm:grid-cols-2">
         <div>

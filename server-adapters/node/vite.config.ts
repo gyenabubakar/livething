@@ -30,7 +30,8 @@ export default defineConfig({
       formats: ['es'],
     },
     minify: true,
-    sourcemap: true,
+    // Maps are not published, so the built files must not point to them.
+    sourcemap: 'hidden',
     rollupOptions: {
       external: [
         /^node:/,

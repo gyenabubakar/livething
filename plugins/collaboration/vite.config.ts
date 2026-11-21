@@ -25,7 +25,8 @@ export default defineConfig({
       formats: ['es'],
     },
     minify: true,
-    sourcemap: true,
+    // Maps are not published, so the built files must not point to them.
+    sourcemap: 'hidden',
     rollupOptions: {
       // Peers and dependencies the app installs. Bundling yjs twice breaks it: Yjs
       // checks types with `instanceof`, so every package must share one copy.

@@ -47,7 +47,8 @@ export default defineConfig({
       formats: ['es'],
     },
     minify: true,
-    sourcemap: true,
+    // Maps are not published, so the built files must not point to them.
+    sourcemap: 'hidden',
     rollupOptions: {
       // @livething/core is now a real published peer; consumers install it
       // alongside @livething/server. Keep it external so the server bundle does
