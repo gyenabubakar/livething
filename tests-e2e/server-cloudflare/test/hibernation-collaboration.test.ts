@@ -1,5 +1,6 @@
 import { encodeBinaryFrame, splitBinaryFrame } from '@livething/core';
-import { evictDurableObject } from 'cloudflare:test';
+import { savedTitleKey } from '@livething/tests-e2e-handlers/collaboration';
+import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
 import { expect, it } from 'vitest';
 import * as Y from 'yjs';
@@ -121,4 +122,30 @@ it('keeps editing a board across a hibernation wake', async () => {
   await join(carol);
   expect(carol.ydoc.getText('title').toString()).toBe('Launch plan');
   expect(alice.frames.filter((frame) => frame.event === 'refused')).toEqual([]);
+});
+
+it('runs an onSave that was due when the Durable Object was evicted', async () => {
+  const stub = env.COLLABORATION_SAVES_SERVER.get(
+    env.COLLABORATION_SAVES_SERVER.idFromName('collaboration-saves'),
+  );
+  const alice = await open(stub, 'alice');
+  await join(alice);
+  const renamed = await rename(alice, 'Saved after the eviction');
+  await waitFor(alice.frames, (frame) => frame.event === 'ack' && frame.info?.n === renamed);
+
+  // Cloudflare drops the object before the 300 ms wait for the save ends.
+  await evictDurableObject(stub);
+
+  // The test runner does not fire alarms by itself: fire the object's alarm, as Cloudflare
+  // would once the save is due, until the save has run.
+  let saved: string | undefined;
+  for (let tries = 0; tries < 20 && saved === undefined; tries += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await runDurableObjectAlarm(stub);
+    saved = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.get<string>(savedTitleKey('launch')),
+    );
+  }
+
+  expect(saved).toBe('Saved after the eviction');
 });

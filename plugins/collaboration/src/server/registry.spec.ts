@@ -3,11 +3,29 @@ import { cycleUpdate, forwardUpdate } from '~/test/raw-update.ts';
 import { open, taskBoard } from '~/test/task-board.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
-import type { CollaborationStorage } from '~/doc/storage.ts';
+import type { CollaborationStorage, DocRef } from '~/doc/storage.ts';
 import type { Draft } from '~/schema.ts';
 import type { RegistryOptions } from '~/server/registry.ts';
 
 const launch = { type: 'task-board', id: 'launch' };
+
+/** Stored saves as timers, where the plugin keeps them as scheduled tasks. */
+function timerSaves(registry: () => DocRegistry) {
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  return {
+    scheduleSave(doc: DocRef, time: number) {
+      const key = `${doc.type}:${doc.id}`;
+      clearTimeout(timers.get(key));
+      timers.set(
+        key,
+        setTimeout(() => void registry().runDueSave(doc), Math.max(0, time - Date.now())),
+      );
+    },
+    cancelSave(doc: DocRef) {
+      clearTimeout(timers.get(`${doc.type}:${doc.id}`));
+    },
+  };
+}
 
 /** A registry over storage in memory that fails while `failing` is set. */
 function setup(members: () => number = () => 0) {
@@ -39,7 +57,10 @@ function setup(members: () => number = () => 0) {
     members,
     saveDelayMs: 10,
     reportError: (message) => errors.push(message),
+    ...timerSaves(() => registry),
   };
+
+  const registry = new DocRegistry(options);
 
   /** The title the stored updates give. */
   function storedTitle(): string {
@@ -49,7 +70,7 @@ function setup(members: () => number = () => 0) {
     return open(taskBoard, ydoc).state.get().title;
   }
 
-  return { registry: new DocRegistry(options), state, errors, storedTitle, stored, sent };
+  return { registry, state, errors, storedTitle, stored, sent };
 }
 
 describe('DocRegistry changes', () => {
@@ -96,13 +117,14 @@ describe('DocRegistry loading', () => {
     good.getText('title').insert(0, 'Launch');
     const stored = [Y.encodeStateAsUpdate(good), broken];
     const errors: string[] = [];
-    const registry = new DocRegistry({
+    const registry: DocRegistry = new DocRegistry({
       defs: new Map([[taskBoard.name, taskBoard]]),
       storage: { load: () => stored, append() {}, compact() {} },
       broadcast: () => {},
       members: () => 1,
       saveDelayMs: 10,
       reportError: (message) => errors.push(message),
+      ...timerSaves(() => registry),
     });
 
     const snapshot = await registry.read(launch);
@@ -128,13 +150,14 @@ describe('DocRegistry loading', () => {
 
     const second = Y.encodeStateAsUpdate(writer.ydoc, before);
     const errors: string[] = [];
-    const registry = new DocRegistry({
+    const registry: DocRegistry = new DocRegistry({
       defs: new Map([[taskBoard.name, taskBoard]]),
       storage: { load: () => [first, second.slice(0, -1)], append() {}, compact() {} },
       broadcast() {},
       members: () => 1,
       saveDelayMs: 10,
       reportError: (message) => errors.push(message),
+      ...timerSaves(() => registry),
     });
 
     expect((await registry.read(launch)).title).toBe('Launch');
@@ -294,13 +317,14 @@ describe('DocRegistry saves with no members', () => {
 describe('DocRegistry.flush() and a load that never ends', () => {
   it('still ends after its time limit, and logs it', async () => {
     const errors: string[] = [];
-    const registry = new DocRegistry({
+    const registry: DocRegistry = new DocRegistry({
       defs: new Map([[taskBoard.name, taskBoard]]),
       storage: { load: () => new Promise(() => {}), append() {}, compact() {} },
       broadcast() {},
       members: () => 1,
       saveDelayMs: 10,
       reportError: (message) => errors.push(message),
+      ...timerSaves(() => registry),
     });
     void registry.read(launch);
 
@@ -314,6 +338,58 @@ describe('DocRegistry.flush() and a load that never ends', () => {
     }
 
     expect(errors.join()).toMatch(/stopped before every doc was stored/);
+  });
+});
+
+describe('DocRegistry.runDueSave()', () => {
+  it('saves once for two stored saves of a doc that loads after a restart', async () => {
+    const saves: string[] = [];
+    const registry: DocRegistry = new DocRegistry({
+      defs: new Map([[taskBoard.name, taskBoard]]),
+      storage: { load: () => [], append() {}, compact() {} },
+      broadcast() {},
+      members: () => 0,
+      saveDelayMs: 10,
+      reportError() {},
+      ...timerSaves(() => registry),
+      onSave(doc) {
+        saves.push(doc.id);
+      },
+    });
+
+    await Promise.all([registry.runDueSave(launch), registry.runDueSave(launch)]);
+
+    expect(saves).toEqual(['launch']);
+  });
+
+  it('does not end before an onSave that is still running, so its stored save stays until then', async () => {
+    const order: string[] = [];
+    const registry: DocRegistry = new DocRegistry({
+      defs: new Map([[taskBoard.name, taskBoard]]),
+      storage: { load: () => [], append() {}, compact() {} },
+      broadcast() {},
+      members: () => 1,
+      saveDelayMs: 60_000,
+      reportError() {},
+      scheduleSave() {},
+      cancelSave() {},
+      async onSave() {
+        order.push('onSave started');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        order.push('onSave ended');
+      },
+    });
+    await registry.change(launch, (d) => {
+      (d as { title: string }).title = 'Launch';
+    });
+
+    const flushing = registry.flush();
+    await vi.waitFor(() => expect(order).toEqual(['onSave started']));
+    await registry.runDueSave(launch);
+    order.push('stored save ended');
+    await flushing;
+
+    expect(order).toEqual(['onSave started', 'onSave ended', 'stored save ended']);
   });
 });
 
@@ -366,6 +442,7 @@ describe('DocRegistry.flush()', () => {
       members: () => 1,
       saveDelayMs: 60_000,
       reportError() {},
+      ...timerSaves(() => registry),
       async onSave() {
         saves += 1;
         // A member's edit arrives while the first save runs.

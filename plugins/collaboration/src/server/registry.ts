@@ -26,6 +26,14 @@ export interface RegistryOptions {
   /** Runs after a doc's changes settle, `saveDelayMs` after the last one. */
   onSave?(doc: DocRef, state: unknown): void | Promise<void>;
   readonly saveDelayMs: number;
+  /**
+   * Keep "save `doc` at `time`" in storage, so it runs even after the server restarts, and
+   * call {@link DocRegistry.runDueSave} then. A doc can have more than one stored after a
+   * restart; the extra ones find nothing new to save, and end.
+   */
+  scheduleSave(doc: DocRef, time: number): void;
+  /** Drop the stored save of `doc`, once it ran some other way. */
+  cancelSave(doc: DocRef): void;
   reportError(message: string, error: unknown): void;
 }
 
@@ -39,7 +47,17 @@ interface OpenDoc {
   appends: number;
   /** Bytes appended since the last compaction, not counting the compacted state. */
   bytes: number;
-  saveTimer: ReturnType<typeof setTimeout> | null;
+  /** A save is stored for this doc, waiting for its time. */
+  saveDue: boolean;
+  /**
+   * The doc changed since `onSave` last read it. Kept apart from `saveDue`, since storing the
+   * save can fail: such a change still saves when the doc unloads or the server stops.
+   */
+  unsaved: boolean;
+  /** When this server last changed the doc, or `0` when it has not since it loaded. */
+  lastChange: number;
+  /** A save ran, or is queued, since the doc loaded. */
+  saved: boolean;
   /** How many calls use the doc now; it is not unloaded while one runs. */
   busy: number;
   /**
@@ -203,7 +221,7 @@ export class DocRegistry {
   /**
    * A member left, or a call ended: unload the doc when nothing needs it. A save that is due
    * runs at once with `saveNow`, as when the last member leaves. Without it, the doc stays
-   * loaded until the save timer runs, so server changes with no members still wait
+   * loaded until the stored save runs, so server changes with no members still wait
    * `saveDelayMs`.
    */
   release(ref: DocRef, options: ReleaseOptions = { saveNow: true }): void {
@@ -235,13 +253,13 @@ export class DocRegistry {
             }
           }
 
-          if (doc.saveTimer) {
-            if (!options.saveNow && !doc.saveWhenIdle) return;
+          if (doc.saveDue || doc.unsaved) {
+            // A stored save waits for its time. With none stored (storing it failed), nothing
+            // would run it later: save before the doc unloads.
+            if (doc.saveDue && !options.saveNow && !doc.saveWhenIdle) return;
 
             doc.saveWhenIdle = false;
-            clearTimeout(doc.saveTimer);
-            doc.saveTimer = null;
-            await this.save(doc);
+            await this.saveNow(doc);
           }
 
           // Something may have opened it while the writes and the save ran.
@@ -314,11 +332,7 @@ export class DocRegistry {
         awaited.set(doc, doc.writes);
         // A save may queue behind the one running: wait until none is left.
         while (doc.saving) await doc.saving;
-        if (!doc.saveTimer) return;
-
-        clearTimeout(doc.saveTimer);
-        doc.saveTimer = null;
-        await this.save(doc);
+        if (doc.saveDue || doc.unsaved) await this.saveNow(doc);
       }),
     );
 
@@ -326,7 +340,9 @@ export class DocRegistry {
     // the error was logged. Writing again at once would only fail again.
     return (
       this.docs.size > loaded.length ||
-      docs.some((doc) => doc.writes !== awaited.get(doc) || doc.saving || doc.saveTimer)
+      docs.some(
+        (doc) => doc.writes !== awaited.get(doc) || doc.saving || doc.saveDue || doc.unsaved,
+      )
     );
   }
 
@@ -387,7 +403,10 @@ export class DocRegistry {
       writes: Promise.resolve(),
       appends: updates.length,
       bytes: updates.slice(1).reduce((size, update) => size + update.length, 0),
-      saveTimer: null,
+      saveDue: false,
+      unsaved: false,
+      lastChange: 0,
+      saved: false,
       busy: 0,
       unstored: false,
       retry: null,
@@ -438,14 +457,79 @@ export class DocRegistry {
     }
   }
 
+  /**
+   * A change landed: save `saveDelayMs` after the last one. The save is stored once, on the
+   * first change, not moved on every change: each move would be a storage write. When it is
+   * due, {@link runDueSave} checks whether changes came since, and waits for the rest.
+   */
   private scheduleSave(doc: OpenDoc): void {
     if (!this.options.onSave) return;
 
-    if (doc.saveTimer) clearTimeout(doc.saveTimer);
-    doc.saveTimer = setTimeout(() => {
-      doc.saveTimer = null;
-      void this.save(doc).then(() => this.release(doc.ref, { saveNow: false }));
-    }, this.options.saveDelayMs);
+    doc.lastChange = Date.now();
+    doc.unsaved = true;
+    if (doc.saveDue) return;
+
+    // Storing the task writes to storage, which can fail: the change itself stands, and the
+    // next change tries again.
+    try {
+      this.options.scheduleSave(doc.ref, doc.lastChange + this.options.saveDelayMs);
+      doc.saveDue = true;
+    } catch (error) {
+      this.options.reportError(`could not schedule onSave for '${keyOf(doc.ref)}'`, error);
+    }
+  }
+
+  /**
+   * The stored save of `ref` is due. Changes that came since it was stored push it on, to
+   * `saveDelayMs` after the last one. A doc that loads for it, after a restart, saves at once:
+   * the save was due before the restart, and nobody has changed it since.
+   */
+  async runDueSave(ref: DocRef): Promise<void> {
+    // A doc type the server no longer serves has nothing to save, and must not retry.
+    if (!this.options.onSave || !this.def(ref.type)) return;
+
+    await this.with(ref, async (doc) => {
+      // This run used up the stored save: the next change must store a new one, whatever
+      // this run does. A second stored one, left from before, only finds nothing to save.
+      doc.saveDue = false;
+
+      // Saved already since the last change, as when the last member left, or by a second
+      // stored save of the same doc. Still, end only once that save has: this run ending
+      // drops it from storage, and a server that stops before then must run it again.
+      if (!doc.unsaved && doc.saved) {
+        while (doc.saving) await doc.saving;
+        return;
+      }
+
+      const time = doc.lastChange + this.options.saveDelayMs;
+      if (doc.lastChange !== 0 && time > Date.now()) {
+        this.options.scheduleSave(doc.ref, time);
+        doc.saveDue = true;
+        return;
+      }
+
+      await this.save(doc);
+    });
+  }
+
+  /**
+   * Save a doc whose save is stored for later now. The stored one is dropped only after
+   * `onSave` ends, so a server that stops while it runs runs it again on its next start. A
+   * change that came meanwhile stored its own, which stays.
+   */
+  private async saveNow(doc: OpenDoc): Promise<void> {
+    doc.saveDue = false;
+    await this.save(doc);
+    // A change during `onSave` keeps the stored save: as its own, or, when storing its own
+    // failed, as the only record that a save is still due.
+    if (doc.saveDue || doc.unsaved) return;
+
+    try {
+      this.options.cancelSave(doc.ref);
+    } catch (error) {
+      // The stored save runs later and saves once more, with nothing new: a lost save is worse.
+      this.options.reportError(`could not drop the stored onSave of '${keyOf(doc.ref)}'`, error);
+    }
   }
 
   /** Run `onSave` for `doc`. `doc.saving` holds the run, so a shutdown can wait for it. */
@@ -454,6 +538,7 @@ export class DocRegistry {
     // one. Each run reads the doc when it starts, so it saves the newest content.
     const running = (doc.saving ?? Promise.resolve()).then(() => this.runSave(doc));
     doc.saving = running;
+    doc.saved = true;
     // This save covers any "save when idle" a member's leave asked for.
     doc.saveWhenIdle = false;
     void running.finally(() => {
@@ -471,6 +556,8 @@ export class DocRegistry {
   private async runSave(doc: OpenDoc): Promise<void> {
     if (!this.options.onSave) return;
 
+    // It reads the doc as it is now: a change after this point marks the doc again.
+    doc.unsaved = false;
     let state: unknown;
     try {
       state = doc.core.read();

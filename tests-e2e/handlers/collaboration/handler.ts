@@ -53,6 +53,34 @@ function defineCollaboration(options: { hibernation: boolean }) {
 
 export const collaborationDefinition = defineCollaboration({ hibernation: false });
 
+/** Where the saves Durable Object keeps each board's saved title, as an app would in its own table. */
+export function savedTitleKey(boardId: string): string {
+  return `saved-title:${boardId}`;
+}
+
+/** The part of Cloudflare's `ctx.platform` an `onSave` here writes to. */
+interface DurableStoragePlatform {
+  readonly ctx: { readonly storage: { put(key: string, value: string): Promise<void> } };
+}
+
+// Huddle's boards with an `onSave` that copies each board's title to the Durable Object's own
+// storage (Cloudflare only). A save is due 300 ms after the last edit.
+const HuddleSavedCollaboration = collaboration({
+  docs: huddleDocs,
+  access: () => 'edit',
+  saveDelayMs: 300,
+  async onSave(ctx, event) {
+    const platform = ctx.platform as DurableStoragePlatform;
+    await platform.ctx.storage.put(savedTitleKey(event.id), event.state.title);
+  },
+});
+
+export const collaborationSavesDefinition = server({
+  authenticate: requireUsername,
+  hibernation: true,
+  capabilities: [channels(), HuddleSavedCollaboration()],
+}).assemble({ handlers: [] });
+
 /** The same handlers on a hibernating Durable Object (Cloudflare only). */
 export const collaborationHibernationDefinition = defineCollaboration({ hibernation: true });
 

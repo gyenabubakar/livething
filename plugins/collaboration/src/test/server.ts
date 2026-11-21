@@ -123,6 +123,21 @@ export async function startServer(options: HarnessOptions = {}) {
 
   const logged: unknown[][] = [];
   let engine!: Engine;
+  // A durable alarm, as the Node adapter keeps it: one timer that runs the due tasks.
+  let alarm: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
+  const timers = {
+    async setAlarm(time: number) {
+      clearTimeout(alarm);
+      if (stopped) return;
+
+      alarm = setTimeout(() => void engine.handleAlarm(), Math.max(0, time - Date.now()));
+    },
+    async deleteAlarm() {
+      clearTimeout(alarm);
+    },
+  };
+
   adapter({
     id: 'collaboration-spec',
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
@@ -148,7 +163,7 @@ export async function startServer(options: HarnessOptions = {}) {
               },
             }
           : {}),
-        timers: { setAlarm: async () => {}, deleteAlarm: async () => {} },
+        timers,
         platform: {},
         logger: { info: () => {}, warn: () => {}, error: (...args) => logged.push(args) },
       });
@@ -163,7 +178,16 @@ export async function startServer(options: HarnessOptions = {}) {
     );
   }
 
-  return { engine, sql, logged, api };
+  /**
+   * Drop the server with no shutdown, as Cloudflare evicts a Durable Object: what is in memory
+   * is gone, and only storage is left for the next server on the same `sql`.
+   */
+  function evict(): void {
+    stopped = true;
+    clearTimeout(alarm);
+  }
+
+  return { engine, sql, logged, api, evict };
 }
 
 /** Let the server finish what it is doing. */

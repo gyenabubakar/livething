@@ -11,6 +11,7 @@ import { channels } from '@livething/server/channels';
 import { clientRequests } from '@livething/server/client-requests';
 import { error } from '@livething/server/errors';
 import { plugin } from '@livething/server/plugins';
+import { scheduled } from '@livething/server/scheduled';
 import { tags } from '@livething/server/tags';
 import { DocCore } from '~/doc/core.ts';
 import { eachPart, joinBytes } from '~/doc/parts.ts';
@@ -74,6 +75,9 @@ const InvalidMessage = error(
 
 /** One member's awareness: room for every lock (32 × 128 bytes), a cursor and the app's fields. */
 const MAX_AWARENESS_BYTES = 8 * 1024;
+
+/** The scheduled task that runs a doc's `onSave` once its changes settle. */
+const SAVE_TASK = 'save-doc';
 
 /** Who is opening a doc, for `access`. */
 export interface AccessContext {
@@ -491,6 +495,9 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
       binary(),
       tags((ephemeral) => [ephemeral('access', t<AccessTag>())]),
       errors([DocNotFound, AccessDenied, VersionNotFound, InvalidMessage]),
+      // A due `onSave` is kept in storage, so it runs even after the server restarts, as when
+      // Cloudflare evicts a Durable Object.
+      scheduled({ [SAVE_TASK]: { data: t<DocRef>() } }),
     ],
     // Store every doc's writes and run the saves that are due, before the server stops.
     async onShutdown(ctx) {
@@ -705,6 +712,12 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
     },
   });
 
+  const handleSaveDoc = collaborationServer.scheduled(SAVE_TASK, {
+    async run(ctx, doc) {
+      await stateOf(ctx).registry.runDueSave(doc);
+    },
+  });
+
   const definition = collaborationServer.assemble({
     handlers: [
       docs,
@@ -714,6 +727,7 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
       handleListVersions,
       handleDeleteVersion,
       handleReadVersion,
+      handleSaveDoc,
     ],
     api: (ctx) => {
       function room(doc: DocRef) {
@@ -734,6 +748,9 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
             room(doc).binary.broadcast('update', piece, { info: part }),
           ),
         members: (doc) => room(doc).memberCount(),
+        scheduleSave: (doc, time) =>
+          ctx.schedule(SAVE_TASK, { time: Math.ceil(time), data: { type: doc.type, id: doc.id } }),
+        cancelSave: (doc) => ctx.cancelScheduled(SAVE_TASK, { type: doc.type, id: doc.id }),
         ...(options.onSave
           ? {
               onSave: (doc: DocRef, saved: unknown) =>

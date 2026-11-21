@@ -730,6 +730,218 @@ describe('collaboration() on the server', () => {
       );
     });
 
+    it('runs a save that was due when the server went away, on the next server', async () => {
+      const sql = testSql();
+      const first = await startServer({ sql, saveDelayMs: 50, onSave: vi.fn() });
+      await first
+        .api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = 'Before the eviction';
+        });
+      first.evict();
+
+      const onSave = vi.fn();
+      await startServer({ sql, saveDelayMs: 50, onSave });
+
+      await until(() => onSave.mock.calls.length > 0, 2000);
+      expect(onSave.mock.calls[0]![1].state.title).toBe('Before the eviction');
+    });
+
+    it('still saves when storing the save task fails once, and keeps the change', async () => {
+      const sql = testSql();
+      let failNext = true;
+      const exec = sql.exec.bind(sql);
+      sql.exec = ((query: string, ...bindings: unknown[]) => {
+        if (failNext && /INSERT INTO __livething_scheduled\s/.test(query)) {
+          failNext = false;
+          throw new Error('disk full');
+        }
+
+        return exec(query, ...(bindings as never[]));
+      }) as typeof sql.exec;
+      const onSave = vi.fn();
+
+      const { api } = await startServer({ sql, onSave, saveDelayMs: 50 });
+      const launch = api().doc('task-board', 'launch');
+
+      await launch.change((d) => {
+        d.title = 'First';
+      });
+      await launch.change((d) => {
+        d.title = 'Second';
+      });
+
+      await until(() => onSave.mock.calls.length > 0, 2000);
+      expect(onSave.mock.calls[0]![1].state.title).toBe('Second');
+    });
+
+    it('stores a save for a change after a stored save found nothing new, behind a slow onSave', async () => {
+      const saved: string[] = [];
+      const { api } = await startServer({
+        saveDelayMs: 100,
+        async onSave(_ctx, event) {
+          if (saved.length === 0) await new Promise((resolve) => setTimeout(resolve, 400));
+          saved.push(event.state.title);
+        },
+      });
+      const launch = api().doc('task-board', 'launch');
+      function rename(title: string) {
+        return launch.change((d) => {
+          d.title = title;
+        });
+      }
+
+      await rename('A');
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await rename('B');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await rename('C');
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await rename('D');
+
+      await until(() => saved.at(-1) === 'D', 2000);
+    });
+
+    it('still saves a single change whose save task could not be stored', async () => {
+      const sql = testSql();
+      let failNext = true;
+      const exec = sql.exec.bind(sql);
+      sql.exec = ((query: string, ...bindings: unknown[]) => {
+        if (failNext && /INSERT INTO __livething_scheduled\s/.test(query)) {
+          failNext = false;
+          throw new Error('disk full');
+        }
+
+        return exec(query, ...(bindings as never[]));
+      }) as typeof sql.exec;
+      const onSave = vi.fn();
+
+      const { api } = await startServer({ sql, onSave, saveDelayMs: 50 });
+
+      await api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = 'Only change';
+        });
+
+      await until(() => onSave.mock.calls.length > 0, 2000);
+      expect(onSave.mock.calls[0]![1].state.title).toBe('Only change');
+    });
+
+    it('saves at shutdown a change made during the last save, even when its task could not be stored', async () => {
+      const sql = testSql();
+      let failInserts = false;
+      const exec = sql.exec.bind(sql);
+      sql.exec = ((query: string, ...bindings: unknown[]) => {
+        if (failInserts && /INSERT INTO __livething_scheduled\s/.test(query)) {
+          throw new Error('disk full');
+        }
+
+        return exec(query, ...(bindings as never[]));
+      }) as typeof sql.exec;
+      let open!: () => void;
+
+      const gate = new Promise<void>((resolve) => (open = resolve));
+      const saved: string[] = [];
+      const { engine, api } = await startServer({
+        sql,
+        saveDelayMs: 60_000,
+        async onSave(_ctx, event) {
+          saved.push(event.state.title);
+          if (saved.length === 1) await gate;
+        },
+      });
+      const launch = api().doc('task-board', 'launch');
+      await launch.change((d) => {
+        d.title = 'One';
+      });
+
+      const shuttingDown = engine.handleShutdown();
+      await until(() => saved.length === 1);
+      failInserts = true;
+      await launch.change((d) => {
+        d.title = 'Two';
+      });
+      open();
+
+      await shuttingDown;
+
+      expect(saved).toEqual(['One', 'Two']);
+    });
+
+    it('keeps the save task while a save at the last leave runs, so a stop then runs it again', async () => {
+      const sql = testSql();
+      const rows: unknown[] = [];
+      const { engine } = await startServer({
+        sql,
+        saveDelayMs: 60_000,
+        onSave() {
+          rows.push(...sql.exec('SELECT id FROM __livething_scheduled').toArray());
+        },
+      });
+      const amara = await member(engine, 'u_amara');
+      await amara.edit(1, (ydoc) => ydoc.getText('title').insert(0, 'Hi'));
+
+      await amara.leave('launch');
+      await until(
+        () =>
+          rows.length > 0 || sql.exec('SELECT 1 FROM __livething_scheduled').toArray().length === 0,
+      );
+      await settle();
+
+      expect(rows).toHaveLength(1);
+      expect(sql.exec('SELECT id FROM __livething_scheduled').toArray()).toEqual([]);
+    });
+
+    it('still saves at shutdown when dropping the save task fails', async () => {
+      const sql = testSql();
+      const exec = sql.exec.bind(sql);
+      sql.exec = ((query: string, ...bindings: unknown[]) => {
+        if (/DELETE FROM __livething_scheduled WHERE/.test(query)) throw new Error('disk full');
+
+        return exec(query, ...(bindings as never[]));
+      }) as typeof sql.exec;
+      const onSave = vi.fn();
+      const { engine, api } = await startServer({ sql, onSave, saveDelayMs: 60_000 });
+
+      await api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = 'Before the shutdown';
+        });
+
+      await engine.handleShutdown();
+
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    it('stores one save task for many quick changes, not one per change', async () => {
+      const sql = testSql();
+      let stored = 0;
+      const exec = sql.exec.bind(sql);
+      sql.exec = ((query: string, ...bindings: unknown[]) => {
+        if (/INSERT INTO __livething_scheduled\s/.test(query)) stored += 1;
+        return exec(query, ...(bindings as never[]));
+      }) as typeof sql.exec;
+      const onSave = vi.fn();
+
+      const { api } = await startServer({ sql, onSave, saveDelayMs: 100 });
+      const launch = api().doc('task-board', 'launch');
+
+      for (let change = 0; change < 10; change += 1) {
+        await launch.change((d) => {
+          d.title = `Draft ${change}`;
+        });
+      }
+
+      await until(() => onSave.mock.calls.length > 0, 2000);
+      expect(onSave).toHaveBeenCalledTimes(1);
+      expect(onSave.mock.calls[0]![1].state.title).toBe('Draft 9');
+      expect(stored).toBeLessThanOrEqual(2);
+    });
+
     it('waits for the delay after server changes to a doc with no members', async () => {
       const onSave = vi.fn();
       const { api } = await startServer({ onSave, saveDelayMs: 200 });
