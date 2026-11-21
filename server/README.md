@@ -3,7 +3,7 @@
 **Typed realtime for TypeScript.** `@livething/server` is the server of [LiveThing](https://livething.dev), a WebSocket-first realtime framework. You declare your events, requests and channels once on the server, and the client gets the same types with no code generation and no schema copy.
 
 - **One contract for both sides.** `InferClient<typeof server>` is the whole client API. Rename an event on the server, and the client code that uses it becomes a type error.
-- **Every input is checked.** Each handler takes a [Standard Schema](https://standardschema.dev) (valibot, Zod, ArkType), so a bad payload never reaches your code.
+- **Every input is checked** with the schema library you already use: any [Standard Schema](https://standardschema.dev) validator, such as Zod, Valibot or ArkType. A bad payload never reaches your code.
 - **Pay only for what you use.** Features are capabilities you list. A capability you leave out adds no code to your bundle.
 - **The features realtime apps need:** events, requests both ways, rooms (channels), streams, replay of missed messages, an inbox, awareness and presence, binary messages, file uploads, scheduled tasks, rate limits, dedup and keepalive.
 - **WebSocket first, with an HTTP fallback.** Where a network blocks WebSocket, the client moves to server-sent events and POSTs, and your code does not change.
@@ -15,11 +15,13 @@ Install the server with one platform adapter:
 
 ```bash
 # Node.js
-npm install @livething/server @livething/server-node @livething/core valibot
+npm install @livething/server @livething/server-node @livething/core
 
 # Cloudflare Durable Objects
-npm install @livething/server @livething/server-cloudflare @livething/core valibot
+npm install @livething/server @livething/server-cloudflare @livething/core
 ```
+
+Use any [Standard Schema](https://standardschema.dev) validator for inputs, such as Zod, Valibot or ArkType. The example below uses Valibot.
 
 ## Example
 
