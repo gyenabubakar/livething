@@ -11,6 +11,8 @@ import { awareness } from '~/awareness/capability.ts';
 import { channels } from '~/channel/capability.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { emits } from '~/emits/emits.ts';
+import { errors as errorsCapability } from '~/errors/capability.ts';
+import { error as defineError } from '~/index.ts';
 import { tags } from '~/tags/capability.ts';
 import * as v from 'valibot';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1240,6 +1242,57 @@ describe('awareness on plugin channels', () => {
     expect(readConnectionRow(storage.sql, dave.id)?.awareness).toEqual({
       [launchKey]: expect.objectContaining({ state: '{"viewingMessageId":"m3"}' }),
     });
+  });
+
+  it("gives an error a plugin's awareness check throws the plugin's own error code", async () => {
+    const Denied = defineError('denied');
+    const scoped = server({
+      scope: 'plugin',
+      capabilities: [channels(), errorsCapability([Denied])],
+    });
+    const docs = scoped.channel(['docs', 'doc:{docId}'], {
+      capabilities: [awareness()],
+      awareness: {
+        state: viewing,
+        check: () => {
+          throw Denied();
+        },
+      },
+    });
+    const Docs = plugin('acme:docs', { definition: scoped.assemble({ handlers: [docs] }) });
+    const codes: string[] = [];
+
+    const base = server({
+      authenticate: () => ({}),
+      capabilities: [channels(), Docs()],
+      onError(_ctx, error) {
+        codes.push((error as { code: string }).code);
+      },
+    });
+    let engine!: Engine;
+
+    adapter({
+      id: 'awareness-plugin-error-spec',
+      asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+      setup(createEngine) {
+        engine = createEngine({
+          storage: createTestStorage(),
+          timers: createTestTimers(),
+          platform: {},
+          logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        });
+        return {};
+      },
+    })(base.assemble({ handlers: [] }), undefined as never);
+    await engine.initialize();
+    const alice = await connect(engine, 'alice');
+
+    await alice.subscribe(launchRouting);
+    await quiet();
+    await alice.set({ viewingMessageId: 'm1' }, launchRouting);
+    await quiet();
+
+    expect(codes).toEqual(['__acme:docs::denied']);
   });
 
   it("runs a plugin channel's awareness check with the plugin's own ctx", async () => {

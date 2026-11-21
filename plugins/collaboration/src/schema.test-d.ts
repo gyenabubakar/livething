@@ -218,3 +218,23 @@ function editBranded() {
 }
 
 void editBranded;
+
+const attachments = doc('attachments', {
+  thumbnail: v.optional(v.instance(Uint8Array), new Uint8Array()),
+});
+declare const attachmentsDraft: Draft<(typeof attachments)['shape']>;
+declare const attachmentsState: Snapshot<(typeof attachments)['shape']>;
+function editThumbnail() {
+  // @ts-expect-error — bytes in a draft are read-only: set the whole value again
+  attachmentsDraft.thumbnail[0] = 255;
+  // @ts-expect-error — so are bytes in a snapshot
+  attachmentsState.thumbnail.fill(0);
+  // @ts-expect-error — and a view of them
+  attachmentsState.thumbnail.subarray(0, 4).set([1]);
+  const copy = attachmentsState.thumbnail.slice();
+  copy[0] = 255;
+  attachmentsDraft.thumbnail = copy;
+  expectTypeOf(attachmentsState.thumbnail[0]).toEqualTypeOf<number | undefined>();
+}
+
+void editThumbnail;

@@ -489,7 +489,8 @@ export function collaboration<const TDocs extends readonly DocDef[]>(
     },
     async check(ctx) {
       const { type, id } = ctx.channel.params;
-      if (!defs.has(type)) throw DocNotFound({ type, id });
+      // A hand-made client can send any ID: one SQL would store under another key is no doc.
+      if (!defs.has(type) || docIdProblem(type, id)) throw DocNotFound({ type, id });
 
       const access = await options.access(
         {

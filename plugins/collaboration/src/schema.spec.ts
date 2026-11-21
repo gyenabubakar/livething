@@ -133,6 +133,23 @@ describe('doc()', () => {
     );
   });
 
+  it('treats a schema that gives a thenable, not a Promise, as asynchronous too', () => {
+    const thenable = {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'test',
+        validate: () => ({ then: (resolve: (r: unknown) => void) => resolve({ issues: [] }) }),
+      },
+    } as never;
+    const notes = doc('notes', { body: text() }, { awareness: thenable });
+    const state = { user: { viewingTaskId: 'x' }, yjs: 1, editor: null, locks: [] };
+
+    expect(() =>
+      checkAwareness({ def: notes, canEdit: true, state, previous: null, others: [] }),
+    ).toThrow(/checked asynchronously/);
+    expect(() => doc('notes', { body: text(), done: thenable })).toThrow(/asynchronously/);
+  });
+
   it('says clearly, on the server, that an awareness schema checked asynchronously', () => {
     const notes = doc(
       'notes',

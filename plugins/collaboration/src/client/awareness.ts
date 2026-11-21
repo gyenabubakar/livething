@@ -141,7 +141,6 @@ export function createDocAwareness<S>(options: DocAwarenessOptions) {
     if (!joined()) return Promise.resolve(false);
 
     mine = { ...mine, locks: [...mine.locks, key] };
-    push();
 
     return new Promise<boolean>((resolve) => {
       const cleanups: (() => void)[] = [];
@@ -166,6 +165,8 @@ export function createDocAwareness<S>(options: DocAwarenessOptions) {
           if (state !== 'open') done(false);
         }),
       );
+      // After the listeners: a state too large is refused at once, inside `push()`.
+      push();
     });
   }
 

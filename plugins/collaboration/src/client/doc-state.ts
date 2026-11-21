@@ -1,6 +1,7 @@
 import { createStore, derive } from '~/client/store.ts';
 import { itemAnchor, resolveItem, resolveText, textAnchor } from '~/doc/anchors.ts';
 import { ChangeOrigin, DocCore } from '~/doc/core.ts';
+import { isThenable } from '~/doc/thenable.ts';
 import * as Y from 'yjs';
 import type { ReadableStore } from '~/client/store.ts';
 import type {
@@ -238,7 +239,7 @@ export function createDocState<D extends DocDef>(
         return core.change((draft) => {
           const result = mutate(draft);
           // The transaction ends after this returns, and then the history looks at it.
-          if (!(result instanceof Promise)) undo.trackedOrigins.add(origin);
+          if (!isThenable(result)) undo.trackedOrigins.add(origin);
           return result;
         }, origin);
       } finally {

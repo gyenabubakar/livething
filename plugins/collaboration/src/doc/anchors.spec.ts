@@ -71,6 +71,18 @@ describe('text anchors', () => {
     });
   });
 
+  it('trim a rich text range that starts on a line break, and refuse one that holds only that', () => {
+    const board = seed();
+    writeNotes(board);
+    // "Agenda for Thursday\nRoom 4": the line break is at 19.
+    const anchor = board.anchor.text((p) => p.tasks[0]?.notes, { from: 19, to: 24 });
+
+    expect(board.anchor.watch(anchor).get()).toEqual({ from: 20, to: 24, text: 'Room' });
+    expect(() => board.anchor.text((p) => p.tasks[0]?.notes, { from: 19, to: 20 })).toThrow(
+      /holds only line breaks/,
+    );
+  });
+
   it('refuse a range that is empty or out of the text', () => {
     const board = seed();
     expect(() => board.anchor.text((p) => p.tasks[0]?.title, { from: 3, to: 3 })).toThrow(

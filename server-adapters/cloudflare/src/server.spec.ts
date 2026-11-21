@@ -1350,19 +1350,22 @@ describe('LiveThingDurableObject admin()', () => {
     expect(read).not.toHaveBeenCalled();
   });
 
-  it.each(['then', 'dup', 'constructor'])('refuses a plugin api method named %s', async (name) => {
-    fake = makeFakeEngine();
-    fake.adminApi.plugin = () => ({ [name]: vi.fn() });
-    const Cls = bind({} as never) as unknown as new (
-      ctx: DurableObjectState,
-      env: unknown,
-    ) => DOInstance;
-    const admin = await new Cls(makeFakeDOState() as unknown as DurableObjectState, {}).admin();
+  it.each(['then', 'dup', 'constructor', '__proto__'])(
+    'refuses a plugin api method named %s',
+    async (name) => {
+      fake = makeFakeEngine();
+      fake.adminApi.plugin = () => ({ [name]: vi.fn() });
+      const Cls = bind({} as never) as unknown as new (
+        ctx: DurableObjectState,
+        env: unknown,
+      ) => DOInstance;
+      const admin = await new Cls(makeFakeDOState() as unknown as DurableObjectState, {}).admin();
 
-    expect(() => (admin.plugin as (id: string) => unknown)('acme:polls')).toThrow(
-      new RegExp(`plugin 'acme:polls' has an api method named '${name}'`),
-    );
-  });
+      expect(() => (admin.plugin as (id: string) => unknown)('acme:polls')).toThrow(
+        new RegExp(`plugin 'acme:polls' has an api method named '${name}'`),
+      );
+    },
+  );
 
   it('wakes hibernated sockets before building the admin surface', async () => {
     const { state } = await adminOf({ hibernation: true });

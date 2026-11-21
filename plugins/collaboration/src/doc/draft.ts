@@ -1,5 +1,5 @@
 import { liveIds, nestedList, rootList, rootType, valuesMap } from '~/doc/layout.ts';
-import { checkString, invalidChange, richTextFrom, writeValue } from '~/doc/values.ts';
+import { checkString, hasHoles, invalidChange, richTextFrom, writeValue } from '~/doc/values.ts';
 import { kindOf } from '~/schema.ts';
 import * as Y from 'yjs';
 import type { ListParts } from '~/doc/layout.ts';
@@ -66,7 +66,9 @@ function toY(at: DraftAt, field: Field, input: unknown): unknown {
       return richTextFrom(checkString(path, input, 'rich text'));
 
     case 'list': {
-      if (!Array.isArray(input)) throw invalidChange(path, 'a list must be an array');
+      if (!Array.isArray(input) || hasHoles(input)) {
+        throw invalidChange(path, 'a list must be an array with no empty slots');
+      }
 
       const item = under(at, '[]');
       const items = new Y.Map<unknown>();

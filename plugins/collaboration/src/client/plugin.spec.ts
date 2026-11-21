@@ -985,6 +985,47 @@ describe('collaboration() on the client', () => {
       expect(after.access.get()).toBe('view');
       expect(refusals).toEqual(['this client may only view the doc']);
     });
+
+    it('tells onRefused when a viewer loads a delete from the device that the server never got', async () => {
+      let role: 'edit' | 'view' = 'edit';
+      const server = await startServer({ access: () => role });
+      const network = memoryNetwork(server.engine);
+      const storage = deviceStorage();
+      const before = huddleClient(network, 'u_amara', { storage }).collab.doc(
+        'task-board',
+        'launch',
+      );
+
+      await before.open();
+      await server
+        .api()
+        .doc('task-board', 'launch')
+        .change((d) => {
+          d.title = 'Launch';
+        });
+      await until(() => before.state.get().title === 'Launch');
+      network.goOffline();
+      before.change((d) => {
+        d.title = 'Lau';
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      role = 'view';
+      network.goOnline();
+
+      const after = huddleClient(network, 'u_amara', { storage }).collab.doc(
+        'task-board',
+        'launch',
+      );
+      const refusals: string[] = [];
+      after.onRefused((refusal) => refusals.push(refusal.reason));
+      await after.open();
+
+      expect(after.access.get()).toBe('view');
+      expect(after.state.get().title).toBe('Lau');
+      expect(refusals).toEqual(['this client may only view the doc']);
+    });
   });
 
   describe('awareness and locks', () => {
@@ -1097,6 +1138,19 @@ describe('collaboration() on the client', () => {
       const later = new Promise((resolve) => setTimeout(() => resolve('still waiting'), 30));
 
       expect(await Promise.race([amara.lock('task:t1'), later])).toBe(false);
+    });
+
+    it('resolves lock() false when the lock would make the awareness state too large', async () => {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      await amara.open();
+      amara.awareness.update({ viewingTaskId: 't'.repeat(8100) });
+      await until(() => amara.awareness.self.get()?.state?.viewingTaskId?.length === 8100);
+
+      const later = new Promise((resolve) => setTimeout(() => resolve('still waiting'), 30));
+
+      expect(await Promise.race([amara.lock(`task:${'t'.repeat(120)}`), later])).toBe(false);
+      expect(await amara.lock('task:t1')).toBe(true);
     });
 
     it('frees a lock unlocked right after lock(), before the server answered', async () => {
@@ -1247,6 +1301,28 @@ describe('collaboration() on the client', () => {
 
       expect(input.value).toBe('Big Launch 日本');
       await until(() => kofi.state.get().title === 'Big Launch 日本');
+    });
+
+    it('keeps text someone typed right after the composed range, during the composition', async () => {
+      const { network } = await huddle();
+      const amara = huddleClient(network, 'u_amara').collab.doc('task-board', 'launch');
+      const kofi = huddleClient(network, 'u_kofi').collab.doc('task-board', 'launch');
+      await amara.open();
+      await kofi.open();
+
+      const input = fakeInput();
+      amara.bindText(input, (p) => p.title);
+
+      input.fire('compositionstart');
+      kofi.change((d) => {
+        d.title = 'Launch plan';
+      });
+      await until(() => amara.state.get().title === 'Launch plan');
+      input.type('La日本', 4);
+      input.fire('compositionend');
+
+      expect(input.value).toBe('La日本 plan');
+      await until(() => kofi.state.get().title === 'La日本 plan');
     });
 
     it('keeps the cursor on its character when a composition is cancelled during a remote edit', async () => {

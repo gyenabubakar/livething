@@ -1,3 +1,4 @@
+import { isThenable } from '~/doc/thenable.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { WireAwareness } from '~/doc/wire.ts';
 import type { DocDef } from '~/schema.ts';
@@ -92,8 +93,8 @@ export function checkAwareness(input: AwarenessCheckInput): boolean {
     const result = def.awareness['~standard'].validate(state.user);
     // A server bug, not a bad state: thrown, so LiveThing reports it, as it does any check that
     // throws. Awareness is checked at once, so such a schema refuses every state.
-    if (result instanceof Promise) {
-      result.catch(() => {});
+    if (isThenable(result)) {
+      Promise.resolve(result).catch(() => {});
       throw new Error(
         `collaboration: the 'awareness' schema of doc type '${def.name}' checked asynchronously. Use a schema that checks at once.`,
       );

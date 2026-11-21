@@ -196,7 +196,11 @@ export type AdminOf<TDefinition> =
  * plugin is listed.
  */
 type WithBuiltIns<TCtx, TApi> = TCtx &
-  (unknown extends TApi ? {} : Omit<TApi, NamedKeys<TCtx> | 'plugin'>);
+  (unknown extends TApi
+    ? {}
+    : // Every built-in shadows the app's member at runtime, even one `TCtx` lacks because its
+      // capability is not listed (`channels`, `schedule`).
+      Omit<TApi, NamedKeys<ConnectionlessContext<Record<string, unknown>, unknown>> | 'plugin'>);
 
 /** The named keys of `T`, without those of an index signature. */
 type NamedKeys<T> = keyof {

@@ -265,6 +265,32 @@ describe('DocRegistry saves with no members', () => {
   });
 });
 
+describe('DocRegistry.flush() and a load that never ends', () => {
+  it('still ends after its time limit, and logs it', async () => {
+    const errors: string[] = [];
+    const registry = new DocRegistry({
+      defs: new Map([[taskBoard.name, taskBoard]]),
+      storage: { load: () => new Promise(() => {}), append() {}, compact() {} },
+      broadcast() {},
+      members: () => 1,
+      saveDelayMs: 10,
+      reportError: (message) => errors.push(message),
+    });
+    void registry.read(launch);
+
+    vi.useFakeTimers();
+    try {
+      const flushing = registry.flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await flushing;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(errors.join()).toMatch(/stopped before every doc was stored/);
+  });
+});
+
 describe('DocRegistry.flush()', () => {
   it('stores a doc whose last write failed, while a member keeps it loaded', async () => {
     const { registry, state, storedTitle } = setup(() => 1);

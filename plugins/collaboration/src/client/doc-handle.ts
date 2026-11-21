@@ -177,9 +177,9 @@ export interface DocHandle<D extends DocDef> extends Omit<DocState<D>, 'yjs'> {
   /**
    * Run `callback` when the server undoes one of this client's changes, such as a value its
    * schema refuses (from an older app version). The doc already shows the undone state.
-   * It also runs each time the client joins as a `'view'` client with content the server does
-   * not have: changes made offline or kept in device storage, or content the server lost. That
-   * content is not sent, and stays in this client's copy (and its device storage).
+   * It also runs each time the client joins as a `'view'` client with content or deletes the
+   * server does not have: changes made offline or kept in device storage, or content the
+   * server lost. They are not sent, and stay in this client's copy (and its device storage).
    * Returns a function that removes the callback.
    */
   onRefused(callback: (refusal: Refusal) => void): () => void;
@@ -382,11 +382,38 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
 
   /**
    * Whether this copy holds content the server's state vector does not cover, such as edits
-   * loaded from the device. A delete adds no content, so only `unsent` catches those.
+   * loaded from the device. A delete adds no content: {@link hasDeletesBeyond} catches those.
    */
   function hasContentBeyond(server: ReadonlyMap<number, number>): boolean {
     for (const [client, clock] of Y.decodeStateVector(Y.encodeStateVector(ydoc))) {
       if (clock > (server.get(client) ?? 0)) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * The updates the server sent while this sync waited for its answer. The first is what this
+   * copy lacked, and it holds the server's whole delete set.
+   */
+  let syncUpdates: Uint8Array[] = [];
+
+  /** Whether this copy deleted something the server has not, such as a delete loaded from the device. */
+  function hasDeletesBeyond(): boolean {
+    const server = Y.mergeDeleteSets(syncUpdates.map((update) => Y.decodeUpdate(update).ds));
+    // Both are sorted, with touching ranges merged, so a local range the server deleted too
+    // sits inside one of the server's ranges.
+    for (const [client, mine] of Y.createDeleteSetFromStructStore(ydoc.store).clients) {
+      const theirs = server.clients.get(client) ?? [];
+      let index = 0;
+      for (const { clock, len } of mine) {
+        while (index < theirs.length && theirs[index]!.clock + theirs[index]!.len <= clock) {
+          index += 1;
+        }
+
+        const range = theirs[index];
+        if (!range || range.clock > clock || range.clock + range.len < clock + len) return true;
+      }
     }
 
     return false;
@@ -434,6 +461,8 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     pending.clear();
     incoming = [];
 
+    syncUpdates = [];
+
     fromServer = new Map();
 
     setStatus();
@@ -461,12 +490,13 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
     const missing = Y.encodeStateAsUpdate(ydoc, Y.encodeStateVector(server));
     if (info.access === 'edit') {
       if (!isEmpty(missing)) send(missing);
-    } else if (unsent || hasContentBeyond(server)) {
+    } else if (unsent || hasContentBeyond(server) || hasDeletesBeyond()) {
       // Local edits (made offline, before access changed) never reach a viewer's server.
       refuse('this client may only view the doc');
     }
 
     unsent = false;
+    syncUpdates = [];
 
     setStatus();
     opening?.resolve();
@@ -520,6 +550,7 @@ export function createDocHandle<D extends DocDef>(options: DocHandleOptions<D>):
       incoming = [];
       try {
         Y.applyUpdate(ydoc, update, FROM_SERVER);
+        if (!synced) syncUpdates.push(update);
         // `to` is where each client's content in the update ends, from any start.
         for (const [client, clock] of Y.parseUpdateMeta(update).to) {
           fromServer.set(client, Math.max(clock, fromServer.get(client) ?? 0));

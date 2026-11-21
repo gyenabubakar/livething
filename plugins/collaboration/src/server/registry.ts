@@ -264,28 +264,32 @@ export class DocRegistry {
    * the shutdown, so this gives up after `FLUSH_TIMEOUT_MS` and logs it.
    */
   async flush(): Promise<void> {
-    const loaded = await Promise.allSettled(this.docs.values());
-    const done = Promise.all(
-      loaded.map(async (result) => {
-        if (result.status !== 'fulfilled') return;
+    // The wait for docs still loading is inside the time limit too: a load can hang as well.
+    const done = Promise.allSettled(this.docs.values())
+      .then((loaded) =>
+        Promise.all(
+          loaded.map(async (result) => {
+            if (result.status !== 'fulfilled') return;
 
-        const doc = result.value;
-        await doc.writes;
-        // A write failed earlier, so storage misses edits the doc holds: store the whole doc.
-        if (doc.unstored) {
-          doc.writes = doc.writes.then(() => this.write(doc, null));
-          await doc.writes;
-        }
+            const doc = result.value;
+            await doc.writes;
+            // A write failed earlier, so storage misses edits the doc holds: store the whole doc.
+            if (doc.unstored) {
+              doc.writes = doc.writes.then(() => this.write(doc, null));
+              await doc.writes;
+            }
 
-        // A save may queue behind the one running: wait until none is left.
-        while (doc.saving) await doc.saving;
-        if (!doc.saveTimer) return;
+            // A save may queue behind the one running: wait until none is left.
+            while (doc.saving) await doc.saving;
+            if (!doc.saveTimer) return;
 
-        clearTimeout(doc.saveTimer);
-        doc.saveTimer = null;
-        await this.save(doc);
-      }),
-    ).then(() => true);
+            clearTimeout(doc.saveTimer);
+            doc.saveTimer = null;
+            await this.save(doc);
+          }),
+        ),
+      )
+      .then(() => true);
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<boolean>((resolve) => {

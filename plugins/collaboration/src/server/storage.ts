@@ -53,7 +53,7 @@ function bytesOf(data: ArrayBuffer | Uint8Array): Uint8Array {
 export function sqlStorage(sql: SQLProvider): ServerStorage {
   let ready = false;
   // Leave room in the row for the doc key and the numbers.
-  const partBytes = Math.max(1024, Math.min(1024 * 1024, Math.floor(sql.limits.maxValueBytes / 2)));
+  const partBytes = Math.max(1, Math.min(1024 * 1024, Math.floor(sql.limits.maxValueBytes / 2)));
 
   function setup(): void {
     if (ready) return;

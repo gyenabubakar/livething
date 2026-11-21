@@ -24,6 +24,7 @@ export type {
   Leaf,
   ListField,
   PathOf,
+  ReadonlyBytes,
   RecordField,
   RichTextField,
   Shape,

@@ -1,4 +1,5 @@
 import { LiveThingError } from '@livething/core';
+import { isThenable } from '~/doc/thenable.ts';
 import diff from 'fast-diff';
 import * as Y from 'yjs';
 import type { Leaf } from '~/schema.ts';
@@ -39,8 +40,8 @@ export function readValue(schema: Leaf, stored: unknown, path: string): unknown 
   // A copy: the output may be the very object it was given, and a snapshot freezes and hands
   // out its output, so the value Yjs holds must not be it. Bytes would stay writable.
   const result = schema['~standard'].validate(copyValue(stored));
-  if (result instanceof Promise) {
-    result.catch(() => {});
+  if (isThenable(result)) {
+    Promise.resolve(result).catch(() => {});
     throw invalidChange(
       path,
       'its schema checks asynchronously, so a change to it cannot be checked at once',
@@ -49,16 +50,24 @@ export function readValue(schema: Leaf, stored: unknown, path: string): unknown 
 
   if (result.issues) throw invalidChange(path, result.issues[0]?.message ?? 'invalid value');
 
+  // A snapshot freezes and copies its output, and the server compares outputs, so a Date or
+  // a class instance would not survive.
+  if (!isStorable(result.value, 0)) {
+    throw invalidChange(path, 'its schema output must be JSON or bytes, as its input is');
+  }
+
   return result.value;
 }
 
 /**
  * Check a value that is about to be written, and give what to store: a copy, because Yjs
- * keeps the object it gets, and the caller may change theirs later.
+ * keeps the object it gets, and the caller may change theirs later. The copy is what gets
+ * checked, so a getter can't give the check one value and Yjs another.
  */
 export function writeValue(schema: Leaf, input: unknown, path: string): unknown {
-  readValue(schema, input, path);
-  return copyValue(input);
+  const copy = isStorable(input, 0) ? copyValue(input) : input;
+  readValue(schema, copy, path);
+  return copy;
 }
 
 /** A deep copy of a value `isStorable` passed. Bytes are copied alone, not with the buffer they view. */
@@ -77,6 +86,15 @@ function copyValue(value: unknown): unknown {
 
 /** Half of an emoji or other pair, alone: UTF-8 can't hold it. */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/** An array with an empty slot, such as `new Array(2)`. Yjs and JSON can't hold one. */
+export function hasHoles(array: readonly unknown[]): boolean {
+  for (let index = 0; index < array.length; index += 1) {
+    if (!Object.hasOwn(array, index)) return true;
+  }
+
+  return false;
+}
 
 /**
  * A string Yjs sends as it is. Yjs encodes strings as UTF-8, which turns a lone surrogate
@@ -122,7 +140,9 @@ export function isStorable(value: unknown, depth: number): boolean {
       // Yjs takes a plain Uint8Array only: not a subclass such as a Node Buffer.
       if (value instanceof Uint8Array) return Object.getPrototypeOf(value) === Uint8Array.prototype;
 
-      if (Array.isArray(value)) return value.every((item) => isStorable(item, depth + 1));
+      if (Array.isArray(value)) {
+        return !hasHoles(value) && value.every((item) => isStorable(item, depth + 1));
+      }
 
       if (![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
 
@@ -145,8 +165,7 @@ export function isStorable(value: unknown, depth: number): boolean {
  * Yjs items. Another person's edit made at the same time then merges, and anchors on the
  * unchanged words stay.
  */
-export function setText(ytext: Y.Text, next: string): void {
-  const current = ytext.toString();
+export function setText(ytext: Y.Text, next: string, current = ytext.toString()): void {
   if (current === next) return;
 
   let index = 0;

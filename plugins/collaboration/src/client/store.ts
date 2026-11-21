@@ -26,6 +26,11 @@ export function createStore<T>(
 ): WritableStore<T> {
   let value = initial;
   const listeners = new Set<(value: T) => void>();
+  // A listener that calls `set` must not make the listeners after it skip a value or see
+  // values out of order. So `get()` gives the new value at once, but its notification waits
+  // until this round ends.
+  const pending: T[] = [];
+  let notifying = false;
 
   return {
     store: {
@@ -41,12 +46,23 @@ export function createStore<T>(
       if (Object.is(next, value)) return;
 
       value = next;
-      for (const listener of [...listeners]) {
-        try {
-          listener(value);
-        } catch (error) {
-          onListenerError(error);
+      pending.push(next);
+      if (notifying) return;
+
+      notifying = true;
+      try {
+        while (pending.length > 0) {
+          const update = pending.shift() as T;
+          for (const listener of [...listeners]) {
+            try {
+              listener(update);
+            } catch (error) {
+              onListenerError(error);
+            }
+          }
         }
+      } finally {
+        notifying = false;
       }
     },
   };
@@ -64,7 +80,7 @@ export function derive<S, T>(source: ReadableStore<S>, select: (value: S) => T):
   function read() {
     const input = source.get();
     // The input is kept only once `select` returned, so a selector that threw runs again.
-    if (input !== lastInput) {
+    if (!Object.is(input, lastInput)) {
       lastOutput = select(input);
       lastInput = input;
     }

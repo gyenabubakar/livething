@@ -144,7 +144,7 @@
       }
     },
     {
-      "files": [".dependency-cruiser.cjs"],
+      "files": [".dependency-cruiser.cjs", ".dependency-cruiser.entries.cjs"],
       "rules": {
         "import/no-commonjs": "off"
       }

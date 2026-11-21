@@ -1,4 +1,5 @@
 import { LiveThingError } from '@livething/core';
+import { createStore, derive } from '~/client/store.ts';
 import { DocCore } from '~/doc/core.ts';
 import { doc, list, record, richText, text } from '~/schema.ts';
 import { ids, open, seed, task, taskBoard, twoOffline } from '~/test/task-board.ts';
@@ -402,6 +403,83 @@ describe('writing', () => {
     Y.applyUpdate(copy.ydoc, Y.encodeStateAsUpdate(board.ydoc));
     expect([...(copy.state.get().data as Uint8Array)]).toEqual([1, 2, 3]);
     expect([...(board.ydoc.getMap('~').get('data') as Uint8Array)]).toEqual([1, 2, 3]);
+  });
+
+  it('runs select() again when its source changes from 0 to -0', () => {
+    const source = createStore(0, () => {});
+    const sign = derive(source.store, (n) => (Object.is(n, -0) ? 'negative' : 'positive'));
+    expect(sign.get()).toBe('positive');
+
+    source.set(-0);
+
+    expect(sign.get()).toBe('negative');
+  });
+
+  it('gives every listener every value in order, when a listener sets the store again', () => {
+    const count = createStore(0, () => {});
+    const seen: [string, number][] = [];
+    count.store.subscribe((n) => {
+      seen.push(['first', n]);
+      if (n !== 1) return;
+
+      count.set(2);
+      seen.push(['get', count.store.get()]);
+    });
+    count.store.subscribe((n) => seen.push(['second', n]));
+
+    count.set(1);
+
+    expect(seen).toEqual([
+      ['first', 1],
+      ['get', 2],
+      ['second', 1],
+      ['first', 2],
+      ['second', 2],
+    ]);
+  });
+
+  it('refuses a sparse array with invalid-change, in a value and in a new list', () => {
+    const polls = doc('polls', {
+      extra: v.optional(v.any(), null),
+      polls: list({ id: v.string(), options: list(v.string()) }),
+    });
+    const board = open(polls);
+    const invalid = expect.objectContaining({ code: 'invalid-change' });
+
+    expect(() => board.change((d) => void (d.extra = new Array(2)))).toThrow(invalid);
+    expect(() =>
+      board.change((d) => d.polls.push({ id: 'p1', options: new Array(2) as string[] })),
+    ).toThrow(invalid);
+  });
+
+  it('stores the value it checked, even when a getter would give another one later', () => {
+    const anyValue = doc('loose', { extra: v.optional(v.object({ x: v.string() }), { x: '' }) });
+    const board = open(anyValue);
+    let reads = 0;
+    const tricky = {
+      get x() {
+        reads += 1;
+        return reads <= 2 ? 'ok' : 5;
+      },
+    };
+
+    board.change((d) => void (d.extra = tricky as never));
+
+    expect(board.state.get().extra).toEqual({ x: 'ok' });
+  });
+
+  it('refuses a schema whose output is not JSON or bytes, such as a Date', () => {
+    const dated = doc('dated', {
+      due: v.optional(
+        v.pipe(
+          v.string(),
+          v.transform((text) => new Date(text)),
+        ),
+        '2026-01-01',
+      ),
+    });
+
+    expect(() => open(dated).state.get()).toThrow();
   });
 
   it('refuses a value that is not JSON', () => {

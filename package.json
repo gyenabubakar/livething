@@ -26,7 +26,7 @@
     "typecheck": "pnpm run build && pnpm -r --parallel --filter='!@livething/website' run typecheck",
     "docs:typecheck": "node website/scripts/docs-typecheck/check.mjs",
     "dup": "jscpd",
-    "depcruise": "depcruise server/src core/src client/src server-adapters/cloudflare/src server-adapters/node/src plugins/collaboration/src --config .dependency-cruiser.cjs",
+    "depcruise": "depcruise server/src core/src client/src server-adapters/cloudflare/src server-adapters/node/src plugins/collaboration/src --config .dependency-cruiser.cjs && depcruise plugins/collaboration/src/index.ts --config .dependency-cruiser.entries.cjs",
     "bundle-check": "node scripts/bundle-check.mjs",
     "knip": "knip",
     "commitlint": "commitlint --edit",

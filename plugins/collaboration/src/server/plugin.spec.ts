@@ -409,6 +409,19 @@ describe('collaboration() on the server', () => {
       ).toContainEqual(expect.objectContaining({ name: 'metadata' }));
     });
 
+    it('keeps every stored piece within a provider limit under 1024 bytes', async () => {
+      const sql = testSql(1000);
+      await sqlStorage(sql).append({ type: 'task-board', id: 'launch' }, new Uint8Array(5000));
+
+      const sizes = sql
+        .exec<{ size: number }>('SELECT length(data) AS size FROM livething_collaboration_updates')
+        .toArray()
+        .map((row) => row.size);
+
+      expect(sizes.reduce((sum, size) => sum + size, 0)).toBe(5000);
+      expect(Math.max(...sizes)).toBeLessThanOrEqual(1000);
+    });
+
     it('splits an update bigger than a row across rows, and loads it back whole', async () => {
       const sql = testSql(2048);
       const first = await startServer({ sql });
@@ -885,6 +898,16 @@ describe('collaboration() on the server', () => {
       expect(() => api().doc('task-board', '')).toThrow(/doc ID/);
       expect(() => api().doc('task-board', 'x'.repeat(300))).toThrow(/doc ID/);
     });
+  });
+
+  it('refuses a client that joins a doc ID with half of an emoji, before access runs', async () => {
+    const access = vi.fn(() => 'edit' as const);
+    const { engine } = await startServer({ access });
+    const hostile = await connect(engine, 'u_amara');
+
+    await hostile.open('room-\ud83d');
+
+    expect(access).not.toHaveBeenCalled();
   });
 
   it('refuses a doc ID or a version label with half of an emoji, from server code', async () => {

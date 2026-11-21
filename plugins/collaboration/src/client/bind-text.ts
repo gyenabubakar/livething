@@ -29,7 +29,7 @@ function isLowSurrogate(code: number): boolean {
 }
 
 /** Where `index` of the text before `delta` is in the text after it. */
-function moveIndex(index: number, delta: Delta): number {
+function moveIndex(index: number, delta: Delta, rangeEnd = false): number {
   let before = 0;
   let moved = index;
   for (const op of delta) {
@@ -38,7 +38,10 @@ function moveIndex(index: number, delta: Delta): number {
     if (op.retain !== undefined) {
       before += op.retain;
     } else if (op.insert !== undefined) {
-      // Text typed right at the cursor goes before it, as when someone types there.
+      // Text typed right at the cursor goes before it, as when someone types there. At the
+      // end of a range it goes after, so a replace of the range keeps it.
+      if (rangeEnd && before === index) continue;
+
       moved += typeof op.insert === 'string' ? op.insert.length : 1;
     } else if (op.delete !== undefined) {
       moved -= Math.min(op.delete, Math.max(0, index - before));
@@ -121,7 +124,7 @@ export function bindText(input: TextInput, ytext: Y.Text, doc: EditableDoc): () 
     if (tail > 0 && isLowSurrogate(shown.charCodeAt(shown.length - tail))) tail -= 1;
 
     const from = deltas.reduce((index, delta) => moveIndex(index, delta), start);
-    const to = deltas.reduce((index, delta) => moveIndex(index, delta), shown.length - tail);
+    const to = deltas.reduce((index, delta) => moveIndex(index, delta, true), shown.length - tail);
     const inserted = typed.slice(start, typed.length - tail);
     edit(() => {
       if (to > from) ytext.delete(from, to - from);

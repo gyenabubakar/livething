@@ -2,6 +2,7 @@ import { fixedDraft } from '~/doc/draft.ts';
 import { rootTypes } from '~/doc/layout.ts';
 import { recordPath, resolvePath } from '~/doc/paths.ts';
 import { Snapshots } from '~/doc/snapshot.ts';
+import { isThenable } from '~/doc/thenable.ts';
 import { setText } from '~/doc/values.ts';
 import * as Y from 'yjs';
 import type { DraftContext } from '~/doc/draft.ts';
@@ -75,7 +76,8 @@ export class DocCore<D extends DocDef = DocDef> {
   /**
    * Edit the doc. `mutate` gets a draft and runs at once; everything it writes is one Yjs
    * transaction with `origin`. If it throws, or writes a value the schema refuses, its
-   * writes are undone, and listeners hear nothing. Returns what `mutate` returns.
+   * writes are undone, and listeners are notified once, with the doc as it was (the same
+   * snapshot object). Returns what `mutate` returns.
    */
   change<R>(mutate: (draft: Draft<D['shape']>) => R, origin: ChangeOrigin = new ChangeOrigin()): R {
     if (this.changing) throw new Error('change() cannot be called inside another change()');
@@ -110,8 +112,8 @@ export class DocCore<D extends DocDef = DocDef> {
     try {
       this.ydoc.transact(() => {
         result = mutate(fixedDraft(draftContext, this.def.shape) as Draft<D['shape']>);
-        if (result instanceof Promise) {
-          result.catch(() => {});
+        if (isThenable(result)) {
+          Promise.resolve(result).catch(() => {});
           throw new Error('change() runs at once: pass a function that is not async');
         }
 

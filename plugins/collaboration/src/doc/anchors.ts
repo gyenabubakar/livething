@@ -56,6 +56,7 @@ function textOf(type: Y.AbstractType<any>) {
   if (type instanceof Y.Text) {
     return {
       text: type.toString(),
+      holdsText: () => true,
       position: (offset: number, assoc: number) =>
         Y.createRelativePositionFromTypeIndex(type, offset, assoc),
     };
@@ -65,6 +66,9 @@ function textOf(type: Y.AbstractType<any>) {
   const { text, runs } = richTextLayout(fragment);
   return {
     text,
+    /** Whether `from` to `to` holds a character of some block, not only line breaks between blocks. */
+    holdsText: (from: number, to: number) =>
+      runs.some((run) => run.start < to && run.start + run.node.length > from),
     // An offset on a line break between blocks belongs to the next text (start) or the
     // previous one (end), so an anchor never sits on the break itself.
     position(offset: number, assoc: number) {
@@ -102,6 +106,14 @@ export function textAnchor(end: PathEnd, range: TextRange): TextAnchor {
   ) {
     throw new RangeError(
       `anchor.text() needs 0 <= from < to <= ${content.text.length}, got from ${from} and to ${to}`,
+    );
+  }
+
+  // A line break between blocks is no character to anchor on: a range trims onto the
+  // characters inside it, and one with none at all is refused.
+  if (!content.holdsText(from, to)) {
+    throw new RangeError(
+      `anchor.text() got from ${from} and to ${to}, a range that holds only line breaks between blocks`,
     );
   }
 

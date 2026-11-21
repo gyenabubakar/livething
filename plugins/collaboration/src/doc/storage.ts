@@ -8,7 +8,9 @@ export interface DocRef<TType extends string = string> {
  * Where a doc's updates are kept: on the device (the client's `storage` option, such as
  * `indexedDbStorage()`), and on the server as part of `ServerStorage`. The bytes are Yjs
  * updates: keep them as they are. The plugin calls these one at a time for each doc, in
- * order: a load, then appends and compactions. Each may return a promise.
+ * order. Each may return a promise. Most often a load comes first, but not always: on the
+ * device, an edit made before the doc's first `open()` is appended before the load, so
+ * `append` must work on a doc that was never loaded.
  *
  * @example
  * ```ts

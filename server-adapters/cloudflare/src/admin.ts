@@ -423,8 +423,16 @@ class AdminTarget<
   }
 }
 
-/** Names a plugin api method can't have on the stub: `then` makes it a thenable, `dup` is the stub's own. */
-const RESERVED_PLUGIN_METHODS: ReadonlySet<string> = new Set(['then', 'dup', 'constructor']);
+/**
+ * Names a plugin api method can't have on the stub: `then` makes it a thenable, `dup` is the
+ * stub's own, and assigning `__proto__` would replace the target's prototype.
+ */
+const RESERVED_PLUGIN_METHODS: ReadonlySet<string> = new Set([
+  'then',
+  'dup',
+  'constructor',
+  '__proto__',
+]);
 
 const pluginTargets = new WeakMap<object, RpcTarget>();
 

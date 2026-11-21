@@ -1,4 +1,5 @@
 import { LiveThingConfigError } from '@livething/core';
+import { isThenable } from '~/doc/thenable.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as Y from 'yjs';
 
@@ -320,8 +321,8 @@ function checkDefault(schema: Leaf, where: Where): void {
   }
 
   // Some libraries, such as zod, turn a throw into a Promise too, so this says both.
-  if (result instanceof Promise) {
-    result.catch(() => {});
+  if (isThenable(result)) {
+    Promise.resolve(result).catch(() => {});
     throw new LiveThingConfigError(
       `${context}: '${path}' did not give its default at once: its schema checks asynchronously, or it throws when given undefined. A change is checked at once, so use a schema that checks synchronously.`,
     );
@@ -339,6 +340,19 @@ function checkDefault(schema: Leaf, where: Where): void {
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
 /**
+ * Bytes in a snapshot or a draft. A typed array can't be frozen, so the type is what keeps
+ * a byte write out: copy the bytes, change the copy, and set the whole value again. It is not
+ * a `Uint8Array` to TypeScript, so pass `bytes.slice()` to a function that takes one.
+ */
+export type ReadonlyBytes = Omit<
+  Uint8Array,
+  number | 'set' | 'fill' | 'copyWithin' | 'reverse' | 'sort' | 'subarray'
+> & {
+  readonly [index: number]: number;
+  subarray(begin?: number, end?: number): ReadonlyBytes;
+};
+
+/**
  * A value changes as a whole, so nothing inside it can be written: you set the whole
  * value again. Arrays and tuples keep their shape, read-only. `D` counts the levels, so a
  * type that contains itself, such as a JSON value type, stops 8 levels down instead of
@@ -353,7 +367,7 @@ type DeepReadonly<T, D extends readonly 0[] = []> = unknown extends T
       : T extends (...args: never[]) => unknown
         ? T
         : T extends Uint8Array
-          ? T
+          ? ReadonlyBytes
           : T extends readonly (infer E)[]
             ? number extends T['length']
               ? readonly DeepReadonly<E, [...D, 0]>[] // any array, branded or not, reads as a plain read-only array

@@ -537,8 +537,10 @@ function scopeAwarenessCheck(scope: PluginScope, primitive: Primitive): Primitiv
     __plugin: scope.id,
     options: {
       ...options,
-      check: (ctx: any, ...rest: any[]) =>
+      // A declared error it throws gets the plugin's namespaced code, as in every other hook.
+      check: scopePluginThrow(scope.id, scope.shortCodes, (ctx: any, ...rest: any[]) =>
         runAsPlugin(scope, ctx, (scoped) => check(scoped, ...rest)),
+      ),
     },
   } as unknown as Primitive;
 }

@@ -494,6 +494,36 @@ describe('the server check', () => {
     expect(Y.encodeStateAsUpdate(server.ydoc).length).toBeLessThan(size + 300);
   });
 
+  it('lets a client delete what a top-level field removed from the doc type holds, but not write to it', () => {
+    const before = open(
+      doc('poll-board', { polls: list({ id: v.string() }), archive: list({ id: v.string() }) }),
+    );
+    before.change((d) => d.archive.push({ id: 'p0' }));
+    const pollBoard = doc('poll-board', { polls: list({ id: v.string() }) });
+    const server = new DocCore(pollBoard);
+    Y.applyUpdate(server.ydoc, Y.encodeStateAsUpdate(before.ydoc));
+
+    const client = new Y.Doc();
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(server.ydoc));
+    const archive = client.getArray<string>('archive');
+
+    expect(
+      applyChecked(
+        server,
+        updateOf(client, () => archive.delete(0, 1)),
+        FROM_CLIENT,
+      ).ok,
+    ).toBe(true);
+    expect(server.ydoc.getArray('archive').length).toBe(0);
+    expect(
+      applyChecked(
+        server,
+        updateOf(client, () => archive.insert(0, ['p1'])),
+        FROM_CLIENT,
+      ).ok,
+    ).toBe(false);
+  });
+
   it('keeps a field removed from the doc type unread, so undo and restore of old items work', () => {
     // Polls and settings stored while the doc type still had a `legacy` field.
     const before = open(
