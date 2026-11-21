@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { createTimeline } from 'animejs'
 
-// A thread on a shared file: Kofi replies with a mention, Amara reacts, and the
+// A thread on a shared file: Kofi replies with a mention, Ama reacts, and the
 // thread is resolved for everyone.
 const root = ref<HTMLElement>()
 
@@ -34,7 +34,7 @@ useIllustration(root, () => createTimeline({ loop: true, autoplay: false, defaul
         <div class="flex gap-2.5">
           <span class="flex size-6 shrink-0 items-center justify-center bg-orange-400 text-[11px] font-semibold text-zinc-950">A</span>
           <p class="leading-5">
-            <span class="font-medium text-white">amara</span>
+            <span class="font-medium text-white">ama</span>
             <span class="text-zinc-500"> · 2m</span><br>
             The headline wraps on small screens.
           </p>
@@ -45,7 +45,7 @@ useIllustration(root, () => createTimeline({ loop: true, autoplay: false, defaul
             <p class="leading-5">
               <span class="font-medium text-white">kofi</span>
               <span class="text-zinc-500"> · now</span><br>
-              <span class="text-sky-300">@amara</span> fixed, it fits now.
+              <span class="text-sky-300">@ama</span> fixed, it fits now.
               <span class="m-reaction rm-show ml-1 inline-flex items-center gap-1 border border-white/10 px-1.5 text-[11px] opacity-0">👍 1</span>
             </p>
           </div>

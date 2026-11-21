@@ -4,7 +4,7 @@ import { createTimeline } from 'animejs'
 // An in-app inbox: a new notification lands and the unread count goes up,
 // then reading it on one device clears it on every device.
 const items = [
-  { text: 'amara invited you to #design', time: '5m' },
+  { text: 'ama invited you to #design', time: '5m' },
   { text: 'ben reacted 🎉 to your message', time: '1h' },
 ]
 const root = ref<HTMLElement>()

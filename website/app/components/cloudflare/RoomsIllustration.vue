@@ -16,7 +16,7 @@ const HEIGHT = 34
 const START = -(COUNT * SIZE + (COUNT - 1) * GAP) / 2
 
 const PERSON = { y: -58, w: 76, h: 26 }
-const people = ['amara', 'kofi', 'ben', 'yaa'].map((name, index) => ({ name, x: 70 + index * 140 }))
+const people = ['ama', 'kofi', 'ben', 'yaa'].map((name, index) => ({ name, x: 70 + index * 140 }))
 
 // The order rooms wake in. Neighbours never wake back to back, so it reads as
 // traffic arriving from all over rather than a sweep. The people take turns

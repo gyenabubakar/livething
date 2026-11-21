@@ -2,8 +2,8 @@
 import { createTimeline, stagger } from 'animejs'
 
 // Two people in one document: Kofi selects a phrase and bookmarks it while
-// Amara types a new sentence. Both edits land without a conflict.
-const typed = ' Amara owns the changelog.'.split('')
+// Ama types a new sentence. Both edits land without a conflict.
+const typed = ' Ama owns the changelog.'.split('')
 const root = ref<HTMLElement>()
 
 useIllustration(root, () => createTimeline({ loop: true, autoplay: false, defaults: { ease: 'outQuad' } })
@@ -39,7 +39,7 @@ useIllustration(root, () => createTimeline({ loop: true, autoplay: false, defaul
             <span class="relative">payments fix</span>
             <span class="m-select rm-show absolute -top-4 left-0 bg-sky-400 px-1 font-sans text-[10px] leading-4 text-zinc-950 opacity-0">kofi</span>
           </span>
-          lands.<span v-for="(char, index) in typed" :key="index" class="m-char whitespace-pre text-[0px]">{{ char }}</span><span class="relative inline-block h-5 w-0.5 translate-y-1 bg-orange-400"><span class="absolute top-full left-0 mt-0.5 bg-orange-400 px-1 font-sans text-[10px] leading-4 text-zinc-950">amara</span></span>
+          lands.<span v-for="(char, index) in typed" :key="index" class="m-char whitespace-pre text-[0px]">{{ char }}</span><span class="relative inline-block h-5 w-0.5 translate-y-1 bg-orange-400"><span class="absolute top-full left-0 mt-0.5 bg-orange-400 px-1 font-sans text-[10px] leading-4 text-zinc-950">ama</span></span>
         </p>
       </div>
       <span class="m-comment rm-show absolute top-[74px] -right-3 flex items-center gap-1 bg-sky-400 px-2 py-1 text-[11px] font-medium text-zinc-950 opacity-0">

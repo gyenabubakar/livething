@@ -38,7 +38,7 @@ useIllustration(root, () => createTimeline({ loop: true, autoplay: false, defaul
             <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-orange-500"><UIcon name="i-ph-chats-circle-bold" class="size-4 text-zinc-950" /></span>
             <div class="min-w-0">
               <p class="flex justify-between gap-2 font-medium text-white">Chat <span class="font-normal text-zinc-400">2m ago</span></p>
-              <p class="truncate text-zinc-300">amara: shipping the fix tonight</p>
+              <p class="truncate text-zinc-300">ama: shipping the fix tonight</p>
             </div>
           </div>
         </div>

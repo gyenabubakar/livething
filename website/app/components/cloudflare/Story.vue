@@ -6,7 +6,7 @@ import { useEventListener } from '@vueuse/core'
 const steps = [
   {
     title: 'Everyone connects to a city near them',
-    body: 'Amara opens your app in Accra, Kofi in London. Each socket lands in the Cloudflare data centre closest to that person, so the first hop is short wherever your users are.',
+    body: 'Ama opens your app in Accra, Kofi in London. Each socket lands in the Cloudflare data centre closest to that person, so the first hop is short wherever your users are.',
   },
   {
     title: 'Every room is a Durable Object',
@@ -24,7 +24,7 @@ const steps = [
   },
   {
     title: 'Rooms reach people anywhere',
-    body: 'Kofi mentions Amara, who has closed the app. The mention goes to Amara\'s own object, lands in the notification feed, and goes out as a push notification to the phone.',
+    body: 'Kofi mentions Ama, who has closed the app. The mention goes to Ama\'s own object, lands in the notification feed, and goes out as a push notification to the phone.',
   },
 ]
 

@@ -5,7 +5,7 @@
 const props = defineProps<{ step: number }>()
 
 const people = [
-  { name: 'amara', city: 'Accra' },
+  { name: 'ama', city: 'Accra' },
   { name: 'kofi', city: 'London' },
   { name: 'ben', city: 'São Paulo' },
   { name: 'yaa', city: 'Tokyo' },
@@ -24,19 +24,19 @@ const routed = computed(() => props.step >= 1)
 const sleeping = computed(() => props.step === 2)
 const woken = computed(() => props.step === 3)
 const reaching = computed(() => props.step === 4)
-const amaraOffline = computed(() => props.step === 4)
+const amaOffline = computed(() => props.step === 4)
 </script>
 
 <template>
   <svg viewBox="-4 0 564 500" class="h-auto w-full cursor-default select-none" role="img" aria-label="People connect to nearby Cloudflare cities, a Worker routes them to one room, and the room is a Durable Object with its sockets, SQLite storage and alarm">
     <!-- people and their devices -->
     <g v-for="(person, index) in people" :key="person.name">
-      <g class="scene-fade" :class="index === 0 && amaraOffline && 'opacity-45'">
+      <g class="scene-fade" :class="index === 0 && amaOffline && 'opacity-45'">
         <rect :x="person.x" :y="DEVICE.y" :width="DEVICE.w" :height="DEVICE.h" class="fill-(--art-top) stroke-(--art-line)" />
         <rect :x="person.x + 10" :y="DEVICE.y + 12" width="22" height="22" class="fill-orange-500/15 stroke-orange-400/50" />
         <text :x="person.x + 21" :y="DEVICE.y + 27" text-anchor="middle" class="text-[11px] font-semibold fill-orange-600 dark:fill-orange-300">{{ person.name[0]!.toUpperCase() }}</text>
         <text :x="person.x + 40" :y="DEVICE.y + 22" class="text-[12px] font-medium fill-(--ui-text-highlighted)">{{ person.name }}</text>
-        <text :x="person.x + 40" :y="DEVICE.y + 36" class="font-mono text-[9px] fill-(--ui-text-muted)">{{ index === 0 && amaraOffline ? 'offline' : 'online' }}</text>
+        <text :x="person.x + 40" :y="DEVICE.y + 36" class="font-mono text-[9px] fill-(--ui-text-muted)">{{ index === 0 && amaOffline ? 'offline' : 'online' }}</text>
       </g>
 
       <!-- the socket from the device to its nearest city -->
@@ -44,7 +44,7 @@ const amaraOffline = computed(() => props.step === 4)
         :x1="person.cx" :y1="DEVICE.y + DEVICE.h" :x2="person.cx" :y2="EDGE.y"
         stroke="#ff8a3d" stroke-width="2"
         class="dash-flow scene-fade"
-        :class="index === 0 && amaraOffline && 'opacity-0'"
+        :class="index === 0 && amaOffline && 'opacity-0'"
       />
     </g>
 
@@ -96,15 +96,15 @@ const amaraOffline = computed(() => props.step === 4)
         {{ sleeping ? 'hibernating, out of memory' : woken ? 'woke up and restored 4 members' : 'awake' }}
       </text>
       <text :x="ROOM.x + 32" :y="ROOM.y + 124" class="font-mono text-[10px] fill-(--ui-text-muted)">
-        {{ sleeping ? '$0 for idle time' : woken ? 'stored · sent to 3 · inboxed' : reaching ? 'mention → user:amara' : 'one copy, worldwide' }}
+        {{ sleeping ? '$0 for idle time' : woken ? 'stored · sent to 3 · inboxed' : reaching ? 'mention → user:ama' : 'one copy, worldwide' }}
       </text>
     </g>
 
-    <!-- other objects: another room, and Amara's own object -->
+    <!-- other objects: another room, and Ama's own object -->
     <g class="scene-fade" :class="routed ? 'opacity-100' : 'opacity-20'">
       <g :class="reaching ? 'opacity-100' : 'opacity-50'" class="scene-fade">
         <rect :x="EDGE.x" :y="SIDE.y" :width="SIDE.w" :height="SIDE.h" class="scene-fade fill-(--art-top)" :class="reaching ? 'stroke-orange-400' : 'stroke-(--art-line)'" stroke-width="1.5" />
-        <text :x="EDGE.x + 12" :y="SIDE.y + 24" class="font-mono text-[11px] fill-(--ui-text-highlighted)">user:amara</text>
+        <text :x="EDGE.x + 12" :y="SIDE.y + 24" class="font-mono text-[11px] fill-(--ui-text-highlighted)">user:ama</text>
         <text :x="EDGE.x + 12" :y="SIDE.y + 44" class="text-[10px] fill-(--ui-text-muted)">feed · push</text>
       </g>
       <g class="opacity-50">
@@ -114,8 +114,8 @@ const amaraOffline = computed(() => props.step === 4)
       </g>
     </g>
 
-    <!-- a mention travels to Amara's object, then around the network to the
-         closed app as a push notification that lands on Amara's device -->
+    <!-- a mention travels to Ama's object, then around the network to the
+         closed app as a push notification that lands on Ama's device -->
     <g class="scene-fade" :class="reaching ? 'opacity-100' : 'opacity-0'">
       <line :x1="ROOM.x" :y1="SIDE.y + SIDE.h / 2" :x2="EDGE.x + SIDE.w" :y2="SIDE.y + SIDE.h / 2" stroke="#ff8a3d" stroke-width="2" class="dash-flow" />
       <polyline

@@ -5,7 +5,7 @@ defineProps<{ link?: string, linkLabel?: string }>()
 
 const GATE = { x: 300, y: 160 }
 const joiners = [
-  { name: 'amara', y: 80, seat: { x: 400, y: 115 }, allowed: true },
+  { name: 'ama', y: 80, seat: { x: 400, y: 115 }, allowed: true },
   { name: 'kofi', y: 160, seat: { x: 440, y: 205 }, allowed: true },
   { name: 'guest', y: 240, seat: null, allowed: false },
 ]

@@ -30,7 +30,7 @@ useIllustration(root, () => createTimeline({ loop: true, autoplay: false, defaul
       </div>
       <div class="space-y-3 px-4 py-4">
         <div class="m-msg-1 rm-show w-fit max-w-[80%] opacity-0">
-          <p class="text-[11px] text-orange-300">amara</p>
+          <p class="text-[11px] text-orange-300">ama</p>
           <p class="mt-0.5 bg-white/[0.06] px-3 py-2">shipping the fix tonight</p>
           <span class="m-react rm-show relative mt-1 inline-flex items-center gap-1 border border-white/10 px-1.5 text-[11px] opacity-0">
             🎉

@@ -7,7 +7,7 @@ const points = [
   {
     icon: 'i-ph-vault-duotone',
     title: 'Your account, your data',
-    body: 'Messages, presence, feeds and documents sit in SQLite inside your own Durable Objects. No realtime vendor keeps a copy.',
+    body: 'Messages, presence, feeds and documents sit in SQLite inside your own Durable Objects, and nowhere else.',
   },
   {
     icon: 'i-ph-globe-hemisphere-west-duotone',
@@ -22,10 +22,10 @@ const points = [
 ]
 
 const tables = [
-  { name: 'channel_memberships', rows: [['amara', '#launch'], ['ben', '#launch'], ['kofi', '#launch']] },
-  { name: 'inbox', rows: [['ben', 'seq 1042'], ['amara', 'seq 1043']] },
+  { name: 'channel_memberships', rows: [['ama', '#launch'], ['ben', '#launch'], ['kofi', '#launch']] },
+  { name: 'inbox', rows: [['ben', 'seq 1042'], ['ama', 'seq 1043']] },
   { name: 'inbox_receipts', rows: [['kofi', 'read 1041'], ['ben', 'read 1040']] },
-  { name: 'last_seen', rows: [['amara', '2m ago'], ['ben', '3h ago']] },
+  { name: 'last_seen', rows: [['ama', '2m ago'], ['ben', '3h ago']] },
 ]
 const benRows = tables.reduce((sum, table) => sum + table.rows.filter(row => row[0] === 'ben').length, 0)
 const COMMAND = 'await admin.purgeUser(\'ben\')'
@@ -51,7 +51,7 @@ useIllustration(root, () => createTimeline({ loop: true, autoplay: false, defaul
         Ownership
       </p>
       <h2 class="section-title">
-        No vendor between you and your users<span class="text-primary">.</span>
+        Your users' data stays with you<span class="text-primary">.</span>
       </h2>
       <ul class="mt-10 max-w-lg space-y-6">
         <li v-for="point in points" :key="point.title" class="flex gap-4">

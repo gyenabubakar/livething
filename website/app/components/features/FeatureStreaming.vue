@@ -4,7 +4,7 @@ import { createTimeline } from 'animejs'
 defineProps<{ link?: string, linkLabel?: string }>()
 
 const before = ['The launch', ' moves to', ' Thursday,', ' after the', ' payments fix', ' lands.']
-const after = ['\n\nOwners:', ' Amara has', ' the changelog', ' and the demo.', ' Kofi has', ' the release notes,', ' and Ben runs', ' the final test', ' on Wednesday.']
+const after = ['\n\nOwners:', ' Ama has', ' the changelog', ' and the demo.', ' Kofi has', ' the release notes,', ' and Ben runs', ' the final test', ' on Wednesday.']
 const chunks = [...before, ...after]
 
 const STEP = 380

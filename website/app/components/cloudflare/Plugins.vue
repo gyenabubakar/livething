@@ -10,7 +10,6 @@ const plugins = [
     name: 'Chat',
     icon: 'i-ph-chats-circle-duotone',
     does: 'Threads, reactions, typing indicators, read state and history.',
-    instead: 'Chat APIs priced per monthly user',
     runsOn: ['room object', 'SQLite'],
   },
   {
@@ -18,7 +17,6 @@ const plugins = [
     name: 'Push Notifications',
     icon: 'i-ph-bell-ringing-duotone',
     does: 'Web, iOS and Android push, sent only when the socket is closed.',
-    instead: 'Push services priced per send',
     runsOn: ['user object', 'alarms'],
   },
   {
@@ -26,7 +24,6 @@ const plugins = [
     name: 'Collaboration',
     icon: 'i-ph-users-four-duotone',
     does: 'Shared documents and state with conflict-free edits, undo, versions and offline merges.',
-    instead: 'Sync engines priced per document or per minute',
     runsOn: ['document object', 'binary frames', 'SQLite'],
     docs: '/plugins/collaboration/overview',
   },
@@ -35,7 +32,6 @@ const plugins = [
     name: 'Notifications Feed',
     icon: 'i-ph-tray-arrow-down-duotone',
     does: 'An in-app inbox with unread counts, in sync on every device.',
-    instead: 'Inbox services priced per notification',
     runsOn: ['user object', 'SQLite'],
   },
   {
@@ -43,7 +39,6 @@ const plugins = [
     name: 'Comments',
     icon: 'i-ph-chat-teardrop-text-duotone',
     does: 'Comment threads with replies, mentions and reactions, on anything people make.',
-    instead: 'Comment services priced per monthly user',
     runsOn: ['room object', 'SQLite'],
   },
 ] as const
@@ -129,7 +124,7 @@ function pick(index: number) {
               <span class="grid transition-[grid-template-rows] duration-300" :class="index === active ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'">
                 <span class="overflow-hidden">
                   <span class="block pt-3 pl-13 text-sm/6 text-muted">{{ plugin.does }}</span>
-                  <span class="mt-3 block pl-13 text-xs text-dimmed">Instead of: {{ plugin.instead }}</span>                  <span class="mt-3 flex flex-wrap gap-1.5 pl-13">
+                  <span class="mt-3 flex flex-wrap gap-1.5 pl-13">
                     <span v-for="part in plugin.runsOn" :key="part" class="border border-orange-400/30 bg-orange-500/[0.07] px-2 py-0.5 font-mono text-[11px] text-orange-700 dark:text-orange-200">{{ part }}</span>
                   </span>
                 </span>

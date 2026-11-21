@@ -31,7 +31,7 @@ It runs on **Node.js** (alone or with Express, Koa, Hono, Fastify or h3) and on 
 - **Every input is checked** with the schema library you already use: any [Standard Schema](https://standardschema.dev) validator, such as Zod, Valibot or ArkType.
 - **Pay only for what you use.** Each feature is a capability you list. A feature you leave out adds no code to your bundle.
 - **Batteries included:** reconnection, an offline send buffer, requests both ways, rooms, presence and awareness, durable streams, replay of missed messages, an inbox, binary messages, file uploads, scheduled tasks, rate limits and keepalive.
-- **Your own servers.** No hosted service and no per-user pricing. Your data stays in your own SQLite, on Node or in each Durable Object.
+- **Your own servers.** You run it on your own infrastructure, and your data stays in your own SQLite, on Node or in each Durable Object.
 
 ## Example
 

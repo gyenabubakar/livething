@@ -6,28 +6,28 @@ defineProps<{ link?: string, linkLabel?: string }>()
 const ROW = 56
 const messages = [
   { from: 'kofi', text: 'The draft is up for review' },
-  { from: 'amara', text: 'Can we ship it Thursday?' },
+  { from: 'ama', text: 'Can we ship it Thursday?' },
   { from: 'ada', text: 'Yes, after the demo' },
 ]
 // Where each reader starts, by message row.
 const readers = [
   { name: 'kofi', row: 0, dot: 'bg-sky-400' },
-  { name: 'amara', row: 1, dot: 'bg-orange-400' },
+  { name: 'ama', row: 1, dot: 'bg-orange-400' },
 ]
 
 const art = ref<HTMLElement>()
 
-// Kofi moves to the last message and everyone sees it, Amara moves up to the
+// Kofi moves to the last message and everyone sees it, Ama moves up to the
 // first one, and once nothing moves, a guest's update is refused by the check.
 useIllustration(art, () => createTimeline({ loop: true, autoplay: false, defaults: { ease: 'inOutQuad' } })
   .add('.a-code', { opacity: [0, 1], translateY: [6, 0], duration: 400 }, 500)
   .add('.a-kofi', { translateY: [0, 2 * ROW], duration: 700 }, 1100)
   .add('.a-ok', { opacity: [0, 1, 1, 0], duration: 1800 }, 1300)
-  .add('.a-amara', { translateY: [0, -ROW], duration: 700 }, 2200)
+  .add('.a-ama', { translateY: [0, -ROW], duration: 700 }, 2200)
   .add('.a-refused', { opacity: [0, 1, 1, 0], duration: 1800 }, 3900)
   .add('.a-scene', { opacity: 0, duration: 400 }, 6000)
   .add('.a-code', { opacity: 0, duration: 1 }, 6400)
-  .add(['.a-kofi', '.a-amara'], { translateY: 0, duration: 1 }, 6400)
+  .add(['.a-kofi', '.a-ama'], { translateY: 0, duration: 1 }, 6400)
   .add('.a-scene', { opacity: 1, duration: 300 }, 6401))
 </script>
 
@@ -104,7 +104,7 @@ useIllustration(art, () => createTimeline({ loop: true, autoplay: false, default
     transform: translateY(112px);
   }
 
-  .a-amara {
+  .a-ama {
     transform: translateY(-56px);
   }
 }

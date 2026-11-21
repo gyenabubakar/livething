@@ -2,10 +2,8 @@
 // A monthly bill for a chat app, worked out from Cloudflare's published
 // Durable Objects rates (September 2026). A small app that fits the Workers
 // Free limits pays nothing; anything bigger pays the $5 Workers Paid plan
-// plus usage beyond its allowances. The two hosted figures use public list
-// prices of the two common pricing models, including their free tiers.
+// plus usage beyond its allowances.
 const MONTH_SECONDS = 2_592_000
-const MONTH_MINUTES = 43_200
 const DAYS = 30
 
 // Workers Free limits reset daily, so a month fits when every day's share fits.
@@ -125,31 +123,6 @@ const total = computed(() => lines.value.reduce((sum, line) => sum + line.cost, 
 // The ladder step the current numbers land on, whether picked or tuned by hand.
 const tier = computed(() => fitsFree.value ? 'free' : total.value <= CF.plan + 0.005 ? 'paid' : 'over')
 
-// Per message plus per connection-minute: each message counted once in and
-// once out. Free up to 200 connections and 6M messages a month.
-const perMessage = computed(() => {
-  const counted = messages.value * 2
-  if (people.value <= 200 && counted <= 6_000_000) return 0
-  return 29 + counted * 2.5 / 1_000_000 + people.value * MONTH_MINUTES / 1_000_000
-})
-// Per monthly active user: about ten monthly users for every person online at
-// peak. Free up to 1,000 monthly users and 100 connections.
-const perUser = computed(() => {
-  const monthly = people.value * 10
-  if (monthly <= 1_000 && people.value <= 100) return 0
-  return 399 + Math.max(0, monthly - 10_000) * 0.09
-})
-
-const bars = computed(() => {
-  const list = [
-    { label: 'Priced per message and connection-minute', cost: perMessage.value },
-    { label: 'Priced per monthly active user', cost: perUser.value },
-    { label: 'LiveThing on your Cloudflare account', cost: total.value, ours: true },
-  ]
-  const max = Math.max(1, ...list.map(bar => bar.cost))
-  return list.map(bar => ({ ...bar, width: Math.max(0.6, bar.cost / max * 100) }))
-})
-
 function compact(value: number) {
   return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
 }
@@ -170,10 +143,10 @@ useViewportActivation(receipt, { threshold: 0.3, onEnter: () => { printed.value 
         The bill
       </p>
       <h2 class="section-title max-w-3xl">
-        Pay for what runs, not for how many users you have<span class="text-primary">.</span>
+        Pay only for what runs<span class="text-primary">.</span>
       </h2>
       <p class="mt-5 max-w-xl text-base/7 text-muted">
-        Hosted realtime is priced per connection, per message or per monthly user, so growth raises the bill. On Cloudflare you pay for requests, awake time and storage, and with hibernation a quiet WebSocket room costs only its storage. Pick a size, then tune it to see a month of a chat app.
+        On Cloudflare you pay for requests, awake time and storage, and with hibernation a quiet WebSocket room costs only its storage. Pick a size, then tune it to see a month of a chat app.
       </p>
     </div>
 
@@ -209,23 +182,9 @@ useViewportActivation(receipt, { threshold: 0.3, onEnter: () => { printed.value 
           </div>
         </div>
 
-        <div class="mt-4 space-y-5 border-t border-default pt-8">
-          <p class="text-xs font-medium uppercase tracking-widest text-zinc-500">
-            The same month, three ways
-          </p>
-          <div v-for="bar in bars" :key="bar.label">
-            <p class="flex items-baseline justify-between gap-4 text-sm" :class="bar.ours ? 'text-highlighted' : 'text-muted'">
-              {{ bar.label }}
-              <span class="font-mono" :class="bar.ours && 'text-primary'">{{ money(bar.cost) }}</span>
-            </p>
-            <div class="mt-2 h-2 bg-elevated">
-              <div class="h-full transition-[width] duration-500" :class="bar.ours ? 'bg-primary' : 'bg-zinc-400 dark:bg-zinc-600'" :style="{ width: `${bar.width}%` }" />
-            </div>
-          </div>
-          <p class="text-xs/5 text-dimmed">
-            Cloudflare rates and hosted list prices as of September 2026, free tiers included. Cloudflare's free limits are daily, so the month is checked against 30 days of them. The hosted figures count each message once in and once out and assume ten monthly users per person online, which is lower than most real bills.
-          </p>
-        </div>
+        <p class="mt-4 border-t border-default pt-8 text-xs/5 text-dimmed">
+          Cloudflare rates as of September 2026, free tiers included. Cloudflare's free limits are daily, so the month is checked against 30 days of them.
+        </p>
       </div>
 
       <LandingGrainPanel tone="dusk" class="min-h-[560px]">
@@ -255,7 +214,7 @@ useViewportActivation(receipt, { threshold: 0.3, onEnter: () => { printed.value 
                 <span class="font-serif text-3xl font-semibold text-zinc-950">{{ money(total) }}</span>
               </p>
               <p class="mt-6 text-center text-[10px] uppercase tracking-widest text-zinc-500">
-                No per-seat fees · no message caps
+                Billed by Cloudflare · at Cloudflare rates
               </p>
             </div>
           </div>

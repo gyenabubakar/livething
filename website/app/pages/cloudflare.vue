@@ -14,9 +14,9 @@ defineOgImage('Home', {
 })
 
 const statement = [
-  { text: 'Realtime services charge you for' },
-  { text: 'every connection, every message, every monthly user and every open document.', accent: true },
-  { text: 'The more people use your app, the more you pay just to keep it online. LiveThing gives you the same features as code you own, running on' },
+  { text: 'LiveThing gives you rooms, presence and shared documents as' },
+  { text: 'code you own,', accent: true },
+  { text: 'typed end to end and running on' },
   { text: 'your own Cloudflare account,', accent: true },
   { text: 'at Cloudflare prices.' },
 ]
@@ -36,7 +36,7 @@ const statement = [
     <LandingCta>
       <template #title>Own your realtime</template>
       <template #description>
-        Rooms, presence and shared documents, typed end to end and running in your Cloudflare account. No realtime vendor between you and your users.
+        Rooms, presence and shared documents, typed end to end and running in your Cloudflare account.
       </template>
     </LandingCta>
   </main>
