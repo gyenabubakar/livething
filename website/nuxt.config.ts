@@ -1,5 +1,3 @@
-import { buildDebug } from './build-debug'
-
 // Cloudflare Web Analytics beacon token — set in the Workers build env. The
 // beacon only loads once a token is present, so local dev stays clean.
 const cfBeaconToken = process.env.NUXT_PUBLIC_CF_BEACON_TOKEN
@@ -265,7 +263,5 @@ export default defineNuxtConfig({
     optimizeDeps: {
       include: ['shaders/vue'],
     },
-    // TEMPORARY: logs where the Cloudflare build stalls. See build-debug.ts.
-    plugins: [buildDebug()],
   },
 })
