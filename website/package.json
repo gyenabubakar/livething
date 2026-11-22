@@ -23,11 +23,12 @@
     "@vueuse/core": "14.3.0",
     "animejs": "^4.5.0",
     "better-sqlite3": "^12.9.0",
-    "docus": "^5.10.1",
+    "docus": "^5.12.3",
     "motion-v": "^2.2.1",
     "nuxt": "^4.4.4",
     "nuxt-studio": "^1.6.1",
-    "satori": "^0.19.3"
+    "satori": "^0.19.3",
+    "tailwindcss": "^4.3.1"
   },
   "devDependencies": {
     "@iconify-json/logos": "^1.2.11",
