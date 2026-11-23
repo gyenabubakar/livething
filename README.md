@@ -16,7 +16,8 @@
   <a href="https://livething.dev/core/start/introduction">Docs</a> ·
   <a href="https://livething.dev/core/start/quickstart">Quickstart</a> ·
   <a href="https://livething.dev/plugins/collaboration/overview">Collaboration</a> ·
-  <a href="https://livething.dev/cloudflare">LiveThing on Cloudflare</a>
+  <a href="https://livething.dev/cloudflare">LiveThing on Cloudflare</a> ·
+  <a href="https://github.com/users/gyenabubakar/projects/4">Roadmap</a>
 </p>
 
 # LiveThing
